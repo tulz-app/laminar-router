@@ -1,80 +1,90 @@
 package app.tulz.routing
 
 import com.raquo.airstream.core.Observer
+import com.raquo.airstream.eventbus.EventBus
+import com.raquo.airstream.eventstream.EventStream
 import com.raquo.airstream.ownership.Owner
 import com.raquo.airstream.signal.{Signal, Val, Var}
 import utest._
+import directives._
 
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{Future, Promise}
 import scala.scalajs.js.timers._
 
 object RoutingTests extends TestSuite {
 
-  def singleLoc(path: String*): Signal[Loc] =
-    Val(
-      loc(path: _*)
-    )
-
-  def loc(path: String*): Loc =
-    Loc(path = path.toList, params = Map.empty)
+  implicit val testOwner: Owner = new Owner {}
 
   case class Context()
   case class Page(p: String)
   case class PageWithSignal($segment: Signal[String])
 
-  implicit val owner: Owner = new Owner {}
-  val $context              = Val(Context())
-  val routing               = new Routing[Context]
-  import routing._
-
   val tests = Tests {
 
-    "pathEnd works" - {
-      val route = pathEnd.map(_ => "end").mapTo(Page("end"))
-      * - {
-        val $pages = runRoute(route, singleLoc(), $context)
-        nSignals(1, $pages).map { p =>
-          p ==> Some(Page("end")) :: Nil
+    "routing works" - {
+      val probe = new ListBuffer[String]()
+      val route = pathEnd {
+        completeNow {
+          probe.append("end")
         }
+      }
+      println(s"route created!")
+      * - {
+        val testContexts = new TestRequestContext()
+        val sub = runRoute(route, testContexts.signal)
+        testContexts.path()
+        probe.toList ==> List("end")
+        sub.kill()
       }
     }
 
-    "sub signal works" - {
-      val route = pathPrefix("prefix").sub { _ =>
-        path(segment).signal.map { $segment =>
-          PageWithSignal($segment)
-        }
-      }
-      * - {
-        val $locs = generateSignals(
-          List(
-            loc("prefix", "1"),
-            loc("prefix", "2"),
-            loc("prefix", "3"),
-            loc("prefix", "2"),
-            loc("prefix2", "2"),
-            loc("prefix", "5"),
-            loc("prefix", "6"),
-            loc("prefix", "7"),
-            loc("prefix", "6")
-          )
-        )
-        val $pages = runRoute(route, $locs, $context)
-        nthSignal(3, $pages).flatMap {
-          case Some(page) =>
-            nSignals(4, page.$segment).map { subLocs =>
-              subLocs ==> List(
-                "5",
-                "6",
-                "7",
-                "6"
-              )
-            }
-          case None => Future.failed(new RuntimeException("no prefix match"))
-        }
-      }
-    }
+//    "pathEnd works" - {
+//      val route = pathEnd.map(_ => "end").mapTo(Page("end"))
+//      * - {
+//        val $pages = runRoute(route, singleLoc(), $context)
+//        nSignals(1, $pages).map { p =>
+//          p ==> Some(Page("end")) :: Nil
+//        }
+//      }
+//    }
+//
+//    "sub signal works" - {
+//      val route = pathPrefix("prefix").sub { _ =>
+//        path(segment).signal.map { $segment =>
+//          PageWithSignal($segment)
+//        }
+//      }
+//      * - {
+//        val $locs = generateSignals(
+//          List(
+//            loc("prefix", "1"),
+//            loc("prefix", "2"),
+//            loc("prefix", "3"),
+//            loc("prefix", "2"),
+//            loc("prefix2", "2"),
+//            loc("prefix", "5"),
+//            loc("prefix", "6"),
+//            loc("prefix", "7"),
+//            loc("prefix", "6")
+//          )
+//        )
+//        val $pages = runRoute(route, $locs, $context)
+//        nthSignal(3, $pages).flatMap {
+//          case Some(page) =>
+//            nSignals(4, page.$segment).map { subLocs =>
+//              subLocs ==> List(
+//                "5",
+//                "6",
+//                "7",
+//                "6"
+//              )
+//            }
+//          case None => Future.failed(new RuntimeException("no prefix match"))
+//        }
+//      }
+//    }
 
   }
 
@@ -138,6 +148,24 @@ object RoutingTests extends TestSuite {
       }
       $var.signal
     case _ => ???
+  }
+
+}
+
+
+class TestRequestContext {
+
+  private val pathBus = Var[List[String]](List.empty)
+  private val paramsBus = Var[Map[String, List[String]]](Map.empty)
+  private val cookiesBus = Var[Map[String, String]](Map.empty)
+
+  val signal: Signal[RequestContext] =
+    pathBus.signal.combineWith(paramsBus.signal).combineWith(cookiesBus.signal).map {
+      case ((path, params), cookies) => RequestContext(path, params, cookies)
+    }
+
+  def path(parts: String*): Unit = {
+    pathBus.writer.onNext(parts.toList)
   }
 
 }
