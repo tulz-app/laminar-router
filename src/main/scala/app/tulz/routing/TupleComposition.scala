@@ -1,4 +1,7 @@
 package app.tulz.routing
+import app.tulz.routing.util.Tuple
+
+import scala.language.implicitConversions
 
 object TupleComposition {
 
@@ -31,6 +34,9 @@ object TupleComposition {
     implicit def Ato_[A] = Composition[A, Unit, A]((a, _) => a)
   }
   object Composition extends Composition_PriMed {
+
+    implicit def CompositionIsTuple[A, B](c: Composition[A, B]): Tuple[c.C] = Tuple.yes
+
     implicit def _to_ = Composition[Unit, Unit, Unit]((_, _) => ())
 
     type Aux[A, B, O] = Composition[A, B] {type C = O}

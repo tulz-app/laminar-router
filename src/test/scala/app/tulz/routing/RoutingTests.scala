@@ -1,41 +1,127 @@
 package app.tulz.routing
 
 import com.raquo.airstream.core.Observer
-import com.raquo.airstream.eventbus.EventBus
-import com.raquo.airstream.eventstream.EventStream
 import com.raquo.airstream.ownership.Owner
-import com.raquo.airstream.signal.{Signal, Val, Var}
+import com.raquo.airstream.signal.{Signal, Var}
 import utest._
-import directives._
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{Future, Promise}
 import scala.scalajs.js.timers._
+import directives._
+import scala.collection.breakOut
 
 object RoutingTests extends TestSuite {
 
   implicit val testOwner: Owner = new Owner {}
 
-  case class Context()
   case class Page(p: String)
   case class PageWithSignal($segment: Signal[String])
 
+  abstract class WithRoute(route: (String => Unit) => Route) {
+    val requestContext = new TestRequestContext()
+    val probe          = new ListBuffer[String]()
+
+    val sub = runRoute(
+      route((s: String) => {
+        println(s"probe: $s")
+        probe.append(s)
+      }),
+      requestContext.signal
+    )
+
+  }
+
   val tests = Tests {
 
-    "routing works" - {
-      val probe = new ListBuffer[String]()
-      val route = pathEnd {
-        completeNow {
-          probe.append("end")
-        }
-      }
-      println(s"route created!")
-      * - {
-        val testContexts = new TestRequestContext()
-        val sub = runRoute(route, testContexts.signal)
-        testContexts.path()
+    "routing" - {
+
+      "simple pathEnd" - new WithRoute(
+        probe =>
+          pathEnd {
+            complete {
+              probe("end")
+            }
+          }
+      ) {
+        def route =
+          requestContext.path()
         probe.toList ==> List("end")
+        sub.kill()
+      }
+
+      "alternate path" - new WithRoute(
+        probe =>
+          path("a") {
+            complete {
+              Future.successful(probe("a"))
+            }
+          } ~
+            path("b") {
+              complete {
+                Future.successful(probe("b"))
+              }
+            }
+      ) {
+        requestContext.path("b")
+        requestContext.path("a")
+        probe.toList ==> List("b", "a")
+        sub.kill()
+      }
+
+      "deep alternate path" - new WithRoute(
+        probe =>
+          pathPrefix("prefix1") {
+            pathPrefix("prefix2") {
+              pathEnd {
+                complete {
+                  probe("prefix1/prefix2")
+                }
+              } ~
+                path("suffix1") {
+                  complete {
+                    probe("prefix1/prefix2/suffix1")
+                  }
+                }
+            }
+          } ~
+            pathPrefix("prefix2") {
+              pathPrefix("prefix3") {
+                pathEnd {
+                  complete {
+                    probe("prefix2/prefix3")
+                  }
+                } ~
+                  path("suffix2") {
+                    complete {
+                      probe("prefix2/prefix3/suffix2")
+                    }
+                  } ~
+                  path("suffix3") {
+                    param('param1) { paramValue =>
+                      complete {
+                        probe(s"prefix2/prefix3/suffix3?param1=$paramValue")
+                      }
+                    }
+                  }
+              }
+            }
+      ) {
+        requestContext.path("prefix2", "prefix3", "suffix2")
+        requestContext.path("prefix1", "prefix2")
+        requestContext.path("prefix1", "prefix2", "suffix1")
+        requestContext.path("prefix2", "prefix3")
+        requestContext.path("prefix2", "prefix3", "suffix3")
+        requestContext.params('param1 -> "param-value")
+
+        probe.toList ==> List(
+          "prefix2/prefix3/suffix2",
+          "prefix1/prefix2",
+          "prefix1/prefix2/suffix1",
+          "prefix2/prefix3",
+          "prefix2/prefix3/suffix3?param1=param-value",
+        )
         sub.kill()
       }
     }
@@ -152,11 +238,10 @@ object RoutingTests extends TestSuite {
 
 }
 
-
 class TestRequestContext {
 
-  private val pathBus = Var[List[String]](List.empty)
-  private val paramsBus = Var[Map[String, List[String]]](Map.empty)
+  private val pathBus    = Var[List[String]](List.empty)
+  private val paramsBus  = Var[Map[String, List[String]]](Map.empty)
   private val cookiesBus = Var[Map[String, String]](Map.empty)
 
   val signal: Signal[RequestContext] =
@@ -165,7 +250,20 @@ class TestRequestContext {
     }
 
   def path(parts: String*): Unit = {
+    println(s"path: ${parts.toList}")
     pathBus.writer.onNext(parts.toList)
+  }
+
+  def params(params: (Symbol, String)*): Unit = {
+    paramsBus.writer.onNext(
+      params
+        .groupBy(_._1)
+        .toList
+        .map {
+          case (name, values) =>
+            name.name -> values.map(_._2).toList
+        }(breakOut)
+    )
   }
 
 }

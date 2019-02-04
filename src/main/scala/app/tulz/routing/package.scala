@@ -1,5 +1,6 @@
 package app.tulz
 
+import app.tulz.routing.util.ApplyConverterInstances
 import com.raquo.airstream.core.Subscription
 import com.raquo.airstream.ownership.Owner
 import com.raquo.airstream.signal.Signal
@@ -9,13 +10,22 @@ import scala.language.implicitConversions
 
 package object routing {
 
-  def runRoute(route: Route, contexts: Signal[RequestContext])(implicit owner: Owner): Subscription = {
+  object directives extends Directives with PathMatchers
+
+  def runRoute(route: Route, contexts: Signal[RequestContext])(implicit ec: ExecutionContext, owner: Owner): Subscription = {
     val routingContext = new RoutingContext
 
     val subscription = contexts.foreach { ctx =>
-      if (routingContext.routeChanged) {
-        route(ctx)(routingContext)
+      route(ctx, routingContext) match {
+        case RouteResult.Rejected => ()
+        case RouteResult.Complete(action) =>
+          if (routingContext.routeChanged) {
+            action() // TODO future here unused
+          } else {
+            ()
+          }
       }
+
       routingContext.roll()
     }
 
@@ -30,13 +40,13 @@ package object routing {
 
   type DirectivePath = String
 
-  type Route = RequestContext => RoutingContext ⇒ Future[RouteResult]
+  type Route = (RequestContext, RoutingContext) ⇒ RouteResult
 
   implicit class RouteWithConcatenation(val route: Route) {
-    def ~(other: Route)(implicit ec: ExecutionContext): Route = { ctx => rctx ⇒
-      route(ctx)(rctx).flatMap {
-        case RouteResult.Complete ⇒ Future.successful(RouteResult.Complete)
-        case RouteResult.Rejected ⇒ other(ctx)(rctx)
+    def ~(other: Route)(implicit ec: ExecutionContext): Route = { (ctx, rctx) ⇒
+      route(ctx, rctx) match {
+        case RouteResult.Complete(action) ⇒ RouteResult.Complete(action)
+        case RouteResult.Rejected ⇒ other(ctx, rctx)
       }
     }
   }
@@ -48,11 +58,9 @@ package object routing {
   }
 
   implicit def anyToRoute[T](u: => T)(implicit ec: ExecutionContext): ToRoute = {
-    println("anyToRoute")
     new ToRoute {
       override def route: Route =
-        _ => _ => Future.successful(u).map(_ => RouteResult.Complete)
-
+        (_, _) => RouteResult.Complete(() => Future.successful(u))
     }
   }
 
