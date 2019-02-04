@@ -139,13 +139,13 @@ object RoutingTests extends TestSuite {
             }
           }
 
-        println("\n\n--------\n\n")
+//        println("\n\n--------\n\n")
         requestContext.path("prefix1", "prefix2", "other-suffix-1")
-        println("\n\n--------\n\n")
+//        println("\n\n--------\n\n")
         requestContext.path("prefix1", "prefix2", "other-suffix-2")
-        println("\n\n--------\n\n")
+//        println("\n\n--------\n\n")
         requestContext.path("prefix1", "prefix2", "other-suffix-3")
-        println("\n\n--------\n\n")
+//        println("\n\n--------\n\n")
 
         probe.toList ==> List(
           "prefix1/prefix2/ - other suffix"

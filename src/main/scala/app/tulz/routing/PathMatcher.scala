@@ -7,26 +7,26 @@ import scala.util.matching.Regex.Match
 import app.tulz.routing.TupleComposition.Composition
 import app.tulz.routing.util.Tuple
 
-abstract class PathMatcher[T](implicit val tuple: Tuple[T]) {
+abstract class PathMatcher[T](val description: String)(implicit val tuple: Tuple[T]) {
   self =>
 
   def apply(path: List[String]): Either[(String, List[String]), (T, List[String])]
 
-  def tmap[V: Tuple](f: T => V): PathMatcher[V] = new PathMatcher[V] {
+  def tmap[V: Tuple](f: T => V): PathMatcher[V] = new PathMatcher[V](self.description) {
     override def apply(in: List[String]): Either[(String, List[String]), (V, List[String])] =
       self(in).map {
         case (t, out) => f(t) -> out
       }
   }
 
-  def tflatMap[V: Tuple](f: T => PathMatcher[V]): PathMatcher[V] = new PathMatcher[V] {
+  def tflatMap[V: Tuple](description: String)(f: T => PathMatcher[V]): PathMatcher[V] = new PathMatcher[V](description) {
     override def apply(path: List[String]): Either[(String, List[String]), (V, List[String])] =
       self(path).flatMap {
         case (t, out) => f(t).apply(out)
       }
   }
 
-  def tfilter(f: T => Boolean): PathMatcher[T] = this.tflatMap { t =>
+  def tfilter(description: String)(f: T => Boolean): PathMatcher[T] = this.tflatMap(description) { t =>
     if (f(t)) {
       PathMatcher.tprovide(t)
     } else {
@@ -34,7 +34,7 @@ abstract class PathMatcher[T](implicit val tuple: Tuple[T]) {
     }
   }
 
-  def tcollect[V: Tuple](f: PartialFunction[T, V]): PathMatcher[V] = this.tflatMap { t =>
+  def tcollect[V: Tuple](description: String)(f: PartialFunction[T, V]): PathMatcher[V] = this.tflatMap(description) { t =>
     if (f.isDefinedAt(t)) {
       PathMatcher.tprovide(f(t))
     } else {
@@ -42,10 +42,10 @@ abstract class PathMatcher[T](implicit val tuple: Tuple[T]) {
     }
   }
 
-  def withFilter(f: T => Boolean): PathMatcher[T] = this.tfilter(f)
+  def withFilter(description: String)(f: T => Boolean): PathMatcher[T] = this.tfilter(description)(f)
 
   def /[V](other: PathMatcher[V])(implicit compose: Composition[T, V]): PathMatcher[compose.C] =
-    self.tflatMap { t1 =>
+    self.tflatMap(s"${self.description}/${other.description}") { t1 =>
       other.tmap { v =>
         compose.gc(t1, v)
       }(Tuple.yes)
@@ -55,7 +55,7 @@ abstract class PathMatcher[T](implicit val tuple: Tuple[T]) {
 
   def void: PathMatcher[Unit] = this.tmap(_ => ())
 
-  def unary_!(): PathMatcher[Unit] = new PathMatcher[Unit]() {
+  def unary_!(): PathMatcher[Unit] = new PathMatcher[Unit](s"!${self.description}") {
     override def apply(path: List[String]): Either[(String, List[String]), (Unit, List[String])] =
       self(path) match {
         case Right((_, rest)) => Left("not !matched" -> rest)
@@ -67,7 +67,7 @@ abstract class PathMatcher[T](implicit val tuple: Tuple[T]) {
 
 object PathMatcher {
 
-  val unit: PathMatcher[Unit] = new PathMatcher[Unit]() {
+  val unit: PathMatcher[Unit] = new PathMatcher[Unit]("unit") {
     override def apply(path: List[String]): Either[(String, List[String]), (Unit, List[String])] =
       Right(() -> path)
   }
@@ -76,7 +76,7 @@ object PathMatcher {
 
   def provide[V](v: V): PathMatcher[Tuple1[V]] = tprovide(Tuple1(v))
 
-  def fail[T: Tuple](msg: String): PathMatcher[T] = new PathMatcher[T]() {
+  def fail[T: Tuple](msg: String): PathMatcher[T] = new PathMatcher[T]("fail") {
     override def apply(path: List[String]): Either[(String, List[String]), (T, List[String])] =
       Left(msg -> path)
   }
@@ -87,7 +87,7 @@ object PathMatchers extends PathMatchers
 
 trait PathMatchers {
 
-  def segment: PathMatcher1[String] = new PathMatcher1[String] {
+  def segment: PathMatcher1[String] = new PathMatcher1[String]("segment") {
 
     override def apply(path: List[String]): Either[(String, List[String]), (Tuple1[String], List[String])] =
       path match {
@@ -97,16 +97,16 @@ trait PathMatchers {
 
   }
 
-  def segment(s: String): PathMatcher0 = segment.tfilter(t => t._1 == s).void
+  def segment(s: String): PathMatcher0 = segment.tfilter(s)(t => t._1 == s).void
 
   def regex(r: Regex): PathMatcher1[Match] =
     segment
       .tmap(s => Tuple1(r.findFirstMatchIn(s._1)))
-      .tcollect {
+      .tcollect(s"regex($r)") {
         case Tuple1(Some(m)) => Tuple1(m)
       }
 
-  def fromTry[V](t: Try[V]): PathMatcher1[V] = new PathMatcher1[V] {
+  def fromTry[V](t: Try[V]): PathMatcher1[V] = new PathMatcher1[V]("fromTry") {
     override def apply(path: List[String]): Either[(String, List[String]), (Tuple1[V], List[String])] =
       t match {
         case Success(value) =>
@@ -118,11 +118,11 @@ trait PathMatchers {
 
   def tryParse[V](t: => V): PathMatcher1[V] = fromTry(Try(t))
 
-  def long: PathMatcher1[Long] = segment.tflatMap { matched =>
+  def long: PathMatcher1[Long] = segment.tflatMap("long") { matched =>
     tryParse(matched._1.toLong)
   }
 
-  def double: PathMatcher1[Double] = segment.tflatMap { matched =>
+  def double: PathMatcher1[Double] = segment.tflatMap("double") { matched =>
     tryParse(matched._1.toDouble)
   }
 

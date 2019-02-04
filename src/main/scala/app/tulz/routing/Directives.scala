@@ -10,36 +10,35 @@ trait Directives {
   def reject: Route = (_, _) => RouteResult.Rejected
 
   def extractContext: Directive1[RequestContext] =
-    Directive[Tuple1[RequestContext]](
-      path => inner => (ctx, rctx) => inner(Tuple1(ctx))(ctx, rctx)
+    Directive[Tuple1[RequestContext]]("extractContext", reportValues = false)(
+      inner => (ctx, rctx) => inner(Tuple1(ctx))(ctx, rctx)
     )
 
-  def extract[T](f: RequestContext => T): Directive1[T] =
-    Directive[Tuple1[T]](
-      path =>
-        inner =>
-          (ctx, rctx) => {
-            val extracted = f(ctx)
-            inner(Tuple1(extracted))(ctx, rctx)
-          }
+  def extract[T](suff: String, reportValues: Boolean)(f: RequestContext => T): Directive1[T] =
+    Directive[Tuple1[T]](suff, reportValues)(
+      inner =>
+        (ctx, rctx) => {
+          val extracted = f(ctx)
+          inner(Tuple1(extracted))(ctx, rctx)
+        }
     )
 
-  def collect[T](f: PartialFunction[RequestContext, T]): Directive1[T] =
-    extract(ctx => ctx).collect(f)
+  def collect[T: Tuple](description: String, reportValues: Boolean)(f: PartialFunction[RequestContext, T]): Directive[T] =
+    extract(description, reportValues)(ctx => ctx).collect(description)(f)
 
   def param(name: Symbol): Directive1[String] =
-    paramOpt(name).collect {
-      case Some(value) => value
+    extract("param", true)(_.params.get(name.name).flatMap(_.headOption)).collect("param") {
+      case Some(value) => Tuple1(value)
     }
 
   def paramOpt(name: Symbol): Directive1[Option[String]] =
-    extract(_.params.get(name.name).flatMap(_.headOption)).reportValue
+    extract("paramOpt", true)(_.params.get(name.name).flatMap(_.headOption))
 
   def extractUnmatchedLoc: Directive1[List[String]] =
-    extract(ctx => ctx.unmatchedPath)
+    extract("extractUnmatchedLoc", reportValues = false)(ctx => ctx.unmatchedPath)
 
   def mapInnerRoute(f: Route ⇒ Route): Directive[Unit] =
-    Directive(_ => inner ⇒ f(inner(())))
+    Directive("mapInnerRoute", reportValues = false)(inner ⇒ f(inner(())))
 
   def mapRequestContext(f: RequestContext ⇒ RequestContext): Directive0 =
     mapInnerRoute { inner ⇒ (ctx, rctx) ⇒
@@ -47,28 +46,38 @@ trait Directives {
     }
 
   def tprovide[L: Tuple](value: L): Directive[L] =
-    Directive(_ => inner => inner(value))
+    Directive("tprovide", reportValues = false)(inner => inner(value))
 
   def pathPrefix[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
-    extractUnmatchedLoc.tflatMap(Some("pref")) {
-      case Tuple1(unmatchedLoc) =>
-        m(unmatchedLoc) match {
-          case Right((t, rest)) =>
-            tprovide(t)(m.tuple) & mapRequestContext(_ withUnmatchedPath rest)
-          case Left(_) => reject
-        }
-    }.reportValue
+    extractUnmatchedLoc
+      .tflatMap(s"prefix(${m.description})", reportValues = true) {
+        case Tuple1(unmatchedLoc) =>
+          m(unmatchedLoc) match {
+            case Right((t, rest)) =>
+              mapRequestContext(_ withUnmatchedPath rest) & tprovide(t)(m.tuple)
+            case Left(_) => reject
+          }
+      }
   }
 
-  def pathEnd: Directive0 = extractUnmatchedLoc.tflatMap(Some("end")) {
-    case Tuple1(Nil) => tprovide(())
-    case other       => Directive.toDirective(reject)
-  }
+  def pathEnd: Directive0 =
+    extractUnmatchedLoc.tflatMap("end", reportValues = true) {
+      case Tuple1(Nil) => tprovide(())
+      case other       => reject
+    }
 
   def path[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
-    pathPrefix(m).reportValue & pathEnd
+    extractUnmatchedLoc
+      .tflatMap(s"path(${m.description})", reportValues = true) {
+        case Tuple1(unmatchedLoc) =>
+          m(unmatchedLoc) match {
+            case Right((t, Nil)) => tprovide(t)(m.tuple) & mapRequestContext(_ withUnmatchedPath Nil)
+            case Right(_)        => reject
+            case Left(_)         => reject
+          }
+      }
   }
 
   def complete[T](action: => Future[T])(implicit ec: ExecutionContext): Route = { (_, _) =>
