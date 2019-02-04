@@ -45,11 +45,11 @@ package object routing {
   implicit class RouteWithConcatenation(val route: Route) {
     def ~(other: Route)(implicit ec: ExecutionContext): Route = { (ctx, rctx) ⇒
       val snapshot = rctx.currentDataMap
-      println(s"saved snapshot: $snapshot")
+//      println(s"saved snapshot: $snapshot")
       route(ctx, rctx) match {
         case RouteResult.Complete(action) ⇒ RouteResult.Complete(action)
         case RouteResult.Rejected ⇒
-          println(s"reverting to snapshot: ${rctx.currentDataMap} -> $snapshot")
+//          println(s"reverting to snapshot: ${rctx.currentDataMap} -> $snapshot")
           rctx.currentDataMap = snapshot
           other(ctx, rctx)
       }

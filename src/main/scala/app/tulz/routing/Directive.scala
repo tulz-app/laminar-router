@@ -66,6 +66,23 @@ object Directive {
 
 }
 
+trait ConjunctionMagnet[L] {
+  type Out
+  def apply(underlying: Directive[L]): Out
+}
+
+object ConjunctionMagnet {
+  implicit def fromDirective[L, R](other: Directive[R])(implicit composition: Composition[L, R]): ConjunctionMagnet[L] { type Out = Directive[composition.C] } =
+    new ConjunctionMagnet[L] {
+      type Out = Directive[composition.C]
+      def apply(underlying: Directive[L]) =
+        Directive[composition.C](s"${underlying.path}&${other.path}", underlying.reportValues || other.reportValues) {
+          inner ⇒
+            underlying.tapply { prefix ⇒ other.tapply { suffix ⇒ inner(composition.gc(prefix, suffix)) } }
+        }(Tuple.yes) // we know that join will only ever produce tuples
+    }
+}
+
 class Directive[L](
   val path: DirectivePath,
   val reportValues: Boolean,
@@ -103,14 +120,7 @@ class Directive[L](
       inner ⇒ self._tapply(value ⇒ inner(f(value)))
     )
 
-  def &[R](next: Directive[R])(implicit composition: Composition[L, R]): Directive[composition.C] =
-    Directive[composition.C](s"${self.path}&${next.path}", self.reportValues || next.reportValues) { inner =>
-      self._tapply { l ⇒
-        next._tapply { r => (ctx, rctx) =>
-          inner(composition.gc(l, r))(ctx, rctx)
-        }
-      }
-    }(Tuple.yes)
+  def &[R](magnet: ConjunctionMagnet[L]): magnet.Out = magnet(this)
 
   def tcollect[R: Tuple](description: String)(f: PartialFunction[L, R]): Directive[R] =
     Directive[R](s"${self.path}.${description}", self.reportValues) { inner ⇒
