@@ -87,6 +87,16 @@ object PathMatchers extends PathMatchers
 
 trait PathMatchers {
 
+  implicit class PathMatcher1Ops[T](matcher: PathMatcher1[T]) {
+
+    def map[R](f: T ⇒ R): PathMatcher1[R] = matcher.tmap { case Tuple1(e) ⇒ Tuple1(f(e)) }
+
+    def flatMap[R](description: String)(f: T ⇒ PathMatcher1[R]): PathMatcher1[R] =
+      matcher.tflatMap(description) { case Tuple1(e) ⇒ f(e) }
+  }
+
+
+
   def segment: PathMatcher1[String] = new PathMatcher1[String]("segment") {
 
     override def apply(path: List[String]): Either[(String, List[String]), (Tuple1[String], List[String])] =

@@ -28,7 +28,14 @@ object TupleComposition {
     implicit def T5[A, B, C, D, E] = Composition[(A, B, C, D), E, (A, B, C, D, E)]((l, r) => (l._1, l._2, l._3, l._4, r))
     implicit def T4[A, B, C, D] = Composition[(A, B, C), D, (A, B, C, D)]((l, r) => (l._1, l._2, l._3, r))
     implicit def T3[A, B, C] = Composition[(A, B), C, (A, B, C)]((l, r) => (l._1, l._2, r))
+
+    implicit def T1plus1[L1, R1] = Composition[Tuple1[L1], Tuple1[R1], (L1, R1)]((l, r) => (l._1, r._1))
+    implicit def T2plus1[L1, L2, R1] = Composition[(L1, L2), Tuple1[R1], (L1, L2, R1)]((l, r) => (l._1, l._2, r._1))
+    implicit def T3plus1[L1, L2, L3, R1] = Composition[(L1, L2, L3), Tuple1[R1], (L1, L2, L3, R1)]((l, r) => (l._1, l._2, l._3, r._1))
+    implicit def T4plus1[L1, L2, L3, L4, R1] = Composition[(L1, L2, L3, L4), Tuple1[R1], (L1, L2, L3, L4, R1)]((l, r) => (l._1, l._2, l._3, l._4, r._1))
+    implicit def T5plus1[L1, L2, L3, L4, L5, R1] = Composition[(L1, L2, L3, L4, L5), Tuple1[R1], (L1, L2, L3, L4, L5, R1)]((l, r) => (l._1, l._2, l._3, l._4, l._5, r._1))
   }
+
   trait Composition_PriMed extends Composition_PriLow {
     implicit def _toA[A] = Composition[Unit, A, A]((_, a) => a)
     implicit def Ato_[A] = Composition[A, Unit, A]((a, _) => a)
