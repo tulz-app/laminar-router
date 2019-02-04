@@ -19,6 +19,7 @@ package object routing {
       route(ctx, routingContext) match {
         case RouteResult.Rejected => ()
         case RouteResult.Complete(action) =>
+          println(s"changed values: ${routingContext._routeChanged}")
           if (routingContext.routeChanged) {
             action() // TODO future here unused
           } else {
@@ -44,9 +45,14 @@ package object routing {
 
   implicit class RouteWithConcatenation(val route: Route) {
     def ~(other: Route)(implicit ec: ExecutionContext): Route = { (ctx, rctx) ⇒
+      val snapshot = rctx._routeChanged
+      println(s"saved snapshot: $snapshot")
       route(ctx, rctx) match {
         case RouteResult.Complete(action) ⇒ RouteResult.Complete(action)
-        case RouteResult.Rejected ⇒ other(ctx, rctx)
+        case RouteResult.Rejected ⇒
+          println(s"reverting to snapshot: ${rctx._routeChanged} -> $snapshot")
+          rctx._routeChanged = snapshot
+          other(ctx, rctx)
       }
     }
   }

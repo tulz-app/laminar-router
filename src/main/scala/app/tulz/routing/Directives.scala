@@ -20,7 +20,6 @@ trait Directives {
         inner =>
           (ctx, rctx) => {
             val extracted = f(ctx)
-            rctx.reportNewValue(path, extracted)
             inner(Tuple1(extracted))(ctx, rctx)
           }
     )
@@ -34,7 +33,7 @@ trait Directives {
     }
 
   def paramOpt(name: Symbol): Directive1[Option[String]] =
-    extract(_.params.get(name.name).flatMap(_.headOption))
+    extract(_.params.get(name.name).flatMap(_.headOption)).reportValue
 
   def extractUnmatchedLoc: Directive1[List[String]] =
     extract(ctx => ctx.unmatchedPath)
@@ -52,24 +51,24 @@ trait Directives {
 
   def pathPrefix[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
-    extractUnmatchedLoc.tflatMap {
+    extractUnmatchedLoc.tflatMap(Some("pref")) {
       case Tuple1(unmatchedLoc) =>
         m(unmatchedLoc) match {
           case Right((t, rest)) =>
             tprovide(t)(m.tuple) & mapRequestContext(_ withUnmatchedPath rest)
           case Left(_) => reject
         }
-    }
+    }.reportValue
   }
 
-  def pathEnd: Directive0 = extractUnmatchedLoc.tflatMap {
+  def pathEnd: Directive0 = extractUnmatchedLoc.tflatMap(Some("end")) {
     case Tuple1(Nil) => tprovide(())
     case other       => Directive.toDirective(reject)
   }
 
   def path[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
-    pathPrefix(m) & pathEnd
+    pathPrefix(m).reportValue & pathEnd
   }
 
   def complete[T](action: => Future[T])(implicit ec: ExecutionContext): Route = { (_, _) =>

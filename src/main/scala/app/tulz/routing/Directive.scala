@@ -4,6 +4,7 @@ import app.tulz.routing.util.{ApplyConverter, Tuple}
 import com.raquo.airstream.signal.{Signal, Var}
 
 import scala.language.implicitConversions
+import scala.scalajs.js
 
 object Directive {
 
@@ -19,16 +20,12 @@ object Directive {
     Directive[L](_ => _ => route)
 
   implicit def addDirectiveApply[L: Tuple](directive: Directive[L])(implicit hac: ApplyConverter[L]): hac.In ⇒ Route =
-    f ⇒ directive.tapply("app", hac(f))
+    f ⇒ directive.tapply("a", hac(f))
 
-  /**
-    * Adds `apply` to Directive0. Note: The `apply` parameter is call-by-name to ensure consistent execution behavior
-    * with the directives producing extractions.
-    */
   implicit class NullaryDirectiveExt(val directive: Directive0) extends AnyRef {
 
     def apply(subRoute: Route): Route = {
-      directive.tapply("app", _ => subRoute)
+      directive.tapply("a", _ => subRoute)
     }
 
   }
@@ -43,12 +40,38 @@ object Directive {
         case Tuple1(value) ⇒ f(value)
       }
 
-    def flatMap[R: Tuple](f: L ⇒ Directive[R]): Directive[R] = {
-      underlying.tflatMap { case Tuple1(value) ⇒ f(value) }
+    def flatMap[R: Tuple](suff: Option[String])(f: L ⇒ Directive[R]): Directive[R] = {
+      underlying.tflatMap(suff) { case Tuple1(value) ⇒ f(value) }
     }
 
     def filter(predicate: L ⇒ Boolean): Directive1[L] =
       underlying.tfilter({ case Tuple1(value) ⇒ predicate(value) })
+
+    def signal: Directive1[Signal[L]] =
+      underlying.tflatMap(null) { t =>
+        Directive[Tuple1[Signal[L]]](
+          path =>
+            inner =>
+              (ctx, rctx) ⇒ {
+                val signalPath = underlying.subId(path, "signal")
+                println(s"path: $path")
+                println(s"signal path: $signalPath")
+                rctx.get[Var[L]](signalPath) match {
+                  case None =>
+                    val var$ = Var(t._1)
+                    println(s"signal initial value: ${t._1}")
+                    rctx.reportNewValue(signalPath, var$)
+                    inner(Tuple1(var$.signal))(ctx, rctx)
+                  case Some(var$) =>
+                    var$.writer.onNext(t._1)
+                    rctx.undoChanged(path)
+                    println(s"signal new value: ${t._1}")
+                    inner(Tuple1(var$.signal))(ctx, rctx)
+                }
+              }
+        )
+      }
+
   }
 
 }
@@ -62,11 +85,20 @@ abstract class Directive[L](implicit val ev: Tuple[L]) {
     _tapply(path, l => inner(l))
   }
 
-  def _tapply(path: DirectivePath, inner: L ⇒ Route): Route
+  def _tapply(pathPrefix: DirectivePath, inner: L ⇒ Route): Route
 
-  def tflatMap[R: Tuple](next: L ⇒ Directive[R]): Directive[R] = {
+  def tflatMap[R: Tuple](suff: Option[String])(next: L ⇒ Directive[R]): Directive[R] = {
     Directive[R](
-      path => inner ⇒ self.tapply(path, value ⇒ next(value).tapply(subId(path, "fm"), inner))
+      path =>
+        inner ⇒
+          self.tapply(
+            path,
+            value ⇒
+              next(value).tapply(
+                suff.map(subId(path, _)).getOrElse(path),
+                inner
+              )
+          )
     )
   }
 
@@ -76,14 +108,14 @@ abstract class Directive[L](implicit val ev: Tuple[L]) {
     )
 
   def &[R](next: Directive[R])(implicit composition: Composition[L, R]): Directive[composition.C] =
-    self.tflatMap { l =>
+    self.tflatMap(Some("&")) { l =>
       next.tmap { r =>
         composition.gc(l, r)
       }(Tuple.yes)
     }(Tuple.yes)
 
   def tcollect[R](f: PartialFunction[L, R]): Directive1[R] =
-    self.tflatMap { t =>
+    self.tflatMap(Some("col")) { t =>
       if (f.isDefinedAt(t)) {
         directives.tprovide(Tuple1(f(t)))
       } else {
@@ -92,12 +124,24 @@ abstract class Directive[L](implicit val ev: Tuple[L]) {
     }
 
   def tfilter(predicate: L => Boolean): Directive[L] =
-    self.tflatMap { t =>
+    self.tflatMap(Some("flt")) { t =>
       if (predicate(t)) {
         directives.tprovide(t)
       } else {
         directives.reject
       }
+    }
+
+  def reportValue: Directive[L] =
+    self.tflatMap(None) { value =>
+      Directive[L](
+        path =>
+          inner =>
+            (ctx, rctx) => {
+              rctx.reportNewValue(path, value)
+              inner(value)(ctx, rctx)
+            }
+      )
     }
 
 //  def maybeOverrideC[U >: L](overrideWith: PartialFunction[RequestContext, U]): Directive[U] = new MaybeOverrideCDirective[L, U](self, overrideWith)
@@ -106,25 +150,5 @@ abstract class Directive[L](implicit val ev: Tuple[L]) {
 
 //  def mapTo[R](newValue: => R): Directive[R] =
 //    self.tmap(_ => newValue)
-
-  def signal: Directive1[Signal[L]] =
-    self.tflatMap { t =>
-      Directive[Tuple1[Signal[L]]](
-        path =>
-          inner =>
-            (ctx, rctx) ⇒ {
-              val signlPath = self.subId(path, "signal")
-              rctx.get[Var[L]](signlPath) match {
-                case None =>
-                  val var$ = Var(t)
-                  rctx.reportNewValue(signlPath, var$)
-                  inner(Tuple1(var$.signal))(ctx, rctx)
-                case Some(var$) =>
-                  var$.writer.onNext(t)
-                  inner(Tuple1(var$.signal))(ctx, rctx)
-              }
-            }
-      )
-    }
 
 }

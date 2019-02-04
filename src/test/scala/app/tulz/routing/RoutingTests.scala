@@ -1,6 +1,6 @@
 package app.tulz.routing
 
-import com.raquo.airstream.core.Observer
+import com.raquo.airstream.core.{Observer, Subscription}
 import com.raquo.airstream.ownership.Owner
 import com.raquo.airstream.signal.{Signal, Var}
 import utest._
@@ -10,6 +10,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{Future, Promise}
 import scala.scalajs.js.timers._
 import directives._
+
 import scala.collection.breakOut
 
 object RoutingTests extends TestSuite {
@@ -19,15 +20,14 @@ object RoutingTests extends TestSuite {
   case class Page(p: String)
   case class PageWithSignal($segment: Signal[String])
 
-  abstract class WithRoute(route: (String => Unit) => Route) {
+  abstract class WithRoute {
     val requestContext = new TestRequestContext()
     val probe          = new ListBuffer[String]()
 
-    val sub = runRoute(
-      route((s: String) => {
-        println(s"probe: $s")
-        probe.append(s)
-      }),
+    def route: Route
+
+    val sub: Subscription = runRoute(
+      route,
       requestContext.signal
     )
 
@@ -37,93 +37,161 @@ object RoutingTests extends TestSuite {
 
     "routing" - {
 
-      "simple pathEnd" - new WithRoute(
-        probe =>
-          pathEnd {
-            complete {
-              probe("end")
-            }
-          }
-      ) {
+//      "simple pathEnd" - new WithRoute {
+//        def route = pathEnd {
+//          complete {
+//            probe.append("end")
+//          }
+//        }
+//        requestContext.path()
+//        probe.toList ==> List("end")
+//        sub.kill()
+//      }
+//
+//      "alternate path" - new WithRoute {
+//
+//        def route =
+//          path("a") {
+//            complete {
+//              Future.successful(probe.append("a"))
+//            }
+//          } ~
+//            path("b") {
+//              complete {
+//                Future.successful(probe.append("b"))
+//              }
+//            }
+//
+//        requestContext.path("b")
+//        requestContext.path("a")
+//        probe.toList ==> List("b", "a")
+//        sub.kill()
+//      }
+//
+//      "deep alternate path" - new WithRoute {
+//
+//        def route =
+//          pathPrefix("prefix1") {
+//            pathPrefix("prefix2") {
+//              pathEnd {
+//                complete {
+//                  probe.append("prefix1/prefix2")
+//                }
+//              } ~
+//                path("suffix1") {
+//                  complete {
+//                    probe.append("prefix1/prefix2/suffix1")
+//                  }
+//                }
+//            }
+//          } ~
+//            pathPrefix("prefix2") {
+//              pathPrefix("prefix3") {
+//                pathEnd {
+//                  complete {
+//                    probe.append("prefix2/prefix3")
+//                  }
+//                } ~
+//                  path("suffix2") {
+//                    complete {
+//                      probe.append("prefix2/prefix3/suffix2")
+//                    }
+//                  } ~
+//                  path("suffix3") {
+//                    param('param1) { paramValue =>
+//                      complete {
+//                        probe.append(s"prefix2/prefix3/suffix3?param1=$paramValue")
+//                      }
+//                    }
+//                  }
+//              }
+//            }
+//
+//        requestContext.path("prefix2", "prefix3", "suffix2")
+//        requestContext.path("prefix1", "prefix2")
+//        requestContext.path("prefix1", "prefix2", "suffix1")
+//        requestContext.path("prefix2", "prefix3")
+//        requestContext.path("prefix2", "prefix3", "suffix3")
+//        requestContext.params('param1 -> "param-value")
+//
+//        probe.toList ==> List(
+//          "prefix2/prefix3/suffix2",
+//          "prefix1/prefix2",
+//          "prefix1/prefix2/suffix1",
+//          "prefix2/prefix3",
+//          "prefix2/prefix3/suffix3?param1=param-value"
+//        )
+//        sub.kill()
+//      }
+
+      "signal" - new WithRoute {
+        var paramSignal: Signal[String] = null
+
         def route =
-          requestContext.path()
-        probe.toList ==> List("end")
-        sub.kill()
-      }
-
-      "alternate path" - new WithRoute(
-        probe =>
-          path("a") {
-            complete {
-              Future.successful(probe("a"))
-            }
-          } ~
-            path("b") {
-              complete {
-                Future.successful(probe("b"))
-              }
-            }
-      ) {
-        requestContext.path("b")
-        requestContext.path("a")
-        probe.toList ==> List("b", "a")
-        sub.kill()
-      }
-
-      "deep alternate path" - new WithRoute(
-        probe =>
           pathPrefix("prefix1") {
             pathPrefix("prefix2") {
-              pathEnd {
+              path(segment).signal { s =>
                 complete {
-                  probe("prefix1/prefix2")
+                  paramSignal = s
+                  probe.append("prefix1/prefix2/ - other suffix")
                 }
-              } ~
-                path("suffix1") {
-                  complete {
-                    probe("prefix1/prefix2/suffix1")
-                  }
-                }
-            }
-          } ~
-            pathPrefix("prefix2") {
-              pathPrefix("prefix3") {
-                pathEnd {
-                  complete {
-                    probe("prefix2/prefix3")
-                  }
-                } ~
-                  path("suffix2") {
-                    complete {
-                      probe("prefix2/prefix3/suffix2")
-                    }
-                  } ~
-                  path("suffix3") {
-                    param('param1) { paramValue =>
-                      complete {
-                        probe(s"prefix2/prefix3/suffix3?param1=$paramValue")
-                      }
-                    }
-                  }
               }
             }
-      ) {
-        requestContext.path("prefix2", "prefix3", "suffix2")
-        requestContext.path("prefix1", "prefix2")
-        requestContext.path("prefix1", "prefix2", "suffix1")
-        requestContext.path("prefix2", "prefix3")
-        requestContext.path("prefix2", "prefix3", "suffix3")
-        requestContext.params('param1 -> "param-value")
+          }
+
+        println("\n\n--------\n\n")
+        requestContext.path("prefix1", "prefix2", "other-suffix-1")
+        println("\n\n--------\n\n")
+        requestContext.path("prefix1", "prefix2", "other-suffix-2")
+        println("\n\n--------\n\n")
+        requestContext.path("prefix1", "prefix2", "other-suffix-3")
+        println("\n\n--------\n\n")
 
         probe.toList ==> List(
-          "prefix2/prefix3/suffix2",
-          "prefix1/prefix2",
-          "prefix1/prefix2/suffix1",
-          "prefix2/prefix3",
-          "prefix2/prefix3/suffix3?param1=param-value",
+          "prefix1/prefix2/ - other suffix"
         )
         sub.kill()
       }
+
+//      "more complicated signal" - new WithRoute {
+//        var paramSignal: Signal[String] = null
+//
+//        def route =
+//          pathPrefix("prefix1") {
+//            pathPrefix("prefix2") {
+//              pathEnd {
+//                complete {
+//                  probe.append("prefix1/prefix2")
+//                }
+//              } ~
+//                path("suffix1") {
+//                  complete {
+//                    probe.append("prefix1/prefix2/suffix1")
+//                  }
+//                } ~
+//                path(segment).signal { s =>
+//                  complete {
+//                    paramSignal = s
+//                    probe.append("prefix1/prefix2/ - other suffix")
+//                  }
+//                }
+//            }
+//          }
+//
+//        requestContext.path("prefix1", "prefix2", "suffix1")
+//        requestContext.path("prefix1", "prefix2")
+//        requestContext.path("prefix1", "prefix2", "other-suffix-1")
+//        requestContext.path("prefix1", "prefix2", "other-suffix-2")
+//        requestContext.path("prefix1", "prefix2", "other-suffix-3")
+//
+//        probe.toList ==> List(
+//          "prefix1/prefix2/suffix1",
+//          "prefix1/prefix2",
+//          "prefix1/prefix2/ - other suffix"
+//        )
+//        sub.kill()
+//      }
+
     }
 
 //    "pathEnd works" - {
@@ -250,7 +318,6 @@ class TestRequestContext {
     }
 
   def path(parts: String*): Unit = {
-    println(s"path: ${parts.toList}")
     pathBus.writer.onNext(parts.toList)
   }
 
