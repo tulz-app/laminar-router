@@ -1,10 +1,10 @@
 package app.tulz.routing
+import app.tulz.debug.Logging
 import app.tulz.routing.TupleComposition.Composition
 import app.tulz.routing.util.{ApplyConverter, Tuple}
 import com.raquo.airstream.signal.{Signal, Var}
 
 import scala.language.implicitConversions
-import scala.scalajs.js
 
 object Directive {
 
@@ -36,27 +36,28 @@ object Directive {
         case Tuple1(value) ⇒ f(value)
       }
 
-//    def flatMap[R: Tuple](suff: Option[String])(f: L ⇒ Directive[R]): Directive[R] = {
-//      underlying.tflatMap(suff) { case Tuple1(value) ⇒ f(value) }
-//    }
-
     def filter(description: String)(predicate: L ⇒ Boolean): Directive1[L] =
       underlying.tfilter(description)({ case Tuple1(value) ⇒ predicate(value) })
 
     def signal: Directive1[Signal[L]] =
       Directive[Tuple1[Signal[L]]](s"${underlying.path}.signal", reportValues = false) { inner => (ctx, rctx) =>
-        underlying.tapply { value ⇒
+//        underlying.copy(reportValues = false).tapply { value ⇒
+      Logging.trace(s"signal - calling underlying.tapply")
+        underlying.tapply { value ⇒ // TODO figure this out, when this is run, enter is not yet called
+          Logging.trace(s"signal - underlying.tapply: $value")
           rctx.previousValue[Var[L]] match {
             case None =>
               val var$ = Var(value._1)
-//              println(s"signal initial value: ${value._1}")
+//              Logging.trace(s"signal initial value: ${value._1}")
               // TODO don't understand this stuff, but this directive never 'enters' before this code, so the value is saved for the underlying directive, which is what we want
               rctx.reportNewValue(var$)
+              Logging.trace(s"signal - calling inner")
               inner(Tuple1(var$.signal))
             case Some(var$) =>
               rctx.reportNewValue(var$)
               var$.writer.onNext(value._1)
-//              println(s"signal new value: ${value._1}")
+//              Logging.trace(s"signal new value: ${value._1}")
+              Logging.trace(s"signal - calling inner")
               inner(Tuple1(var$.signal))
           }
         }(ctx, rctx)
@@ -86,24 +87,34 @@ object ConjunctionMagnet {
 class Directive[L](
   val path: DirectivePath,
   val reportValues: Boolean,
-  val _tapply: (L ⇒ Route) => Route
+  private val _tapply: (L ⇒ Route) => Route
 )(implicit val ev: Tuple[L]) {
   self =>
+
+  def copy(
+    path: DirectivePath = this.path,
+    reportValues: Boolean = this.reportValues
+  ): Directive[L] = new Directive[L](path, reportValues, this._tapply)
 
   def tapply(inner: L ⇒ Route): Route = {
     _tapply(
       value =>
         (ctx, rctx) => {
-          rctx.enter(path)
           if (reportValues) {
+            rctx.enter(path)
             if (value == ()) {
               rctx.reportNewValue(true)
             } else {
               rctx.reportNewValue(value)
             }
           }
+          if (reportValues) {
+            Logging.trace("calling inner...")
+          }
           val result = inner(value)(ctx, rctx)
-          rctx.leave()
+          if (reportValues) {
+            rctx.leave()
+          }
           result
         }
     )
@@ -111,7 +122,7 @@ class Directive[L](
 
   def tflatMap[R: Tuple](path: String, reportValues: Boolean)(next: L ⇒ Directive[R]): Directive[R] = {
     Directive[R](path, reportValues) { inner ⇒
-      self._tapply(value ⇒ next(value)._tapply(inner))
+      self.tapply(value ⇒ next(value).tapply(inner))
     }
   }
 
@@ -124,12 +135,12 @@ class Directive[L](
 
   def tcollect[R: Tuple](description: String)(f: PartialFunction[L, R]): Directive[R] =
     Directive[R](s"${self.path}.${description}", self.reportValues) { inner ⇒
-      self._tapply(
+      self.tapply(
         value ⇒
           if (f.isDefinedAt(value)) {
             inner(f(value))
           } else {
-            directives.reject
+            directives.reject(s"collect: $description")
           }
       )
     }
@@ -141,16 +152,9 @@ class Directive[L](
           if (predicate(value)) {
             inner(value)
           } else {
-            directives.reject
+            directives.reject(s"filter:  $description")
           }
       )
     }
-
-//  def maybeOverrideC[U >: L](overrideWith: PartialFunction[RequestContext, U]): Directive[U] = new MaybeOverrideCDirective[L, U](self, overrideWith)
-//
-//  def maybeOverride[U >: L](overrideWith: RequestContext => Option[U]): Directive[U] = new MaybeOverrideDirective[L, U](self, overrideWith)
-
-//  def mapTo[R](newValue: => R): Directive[R] =
-//    self.tmap(_ => newValue)
 
 }

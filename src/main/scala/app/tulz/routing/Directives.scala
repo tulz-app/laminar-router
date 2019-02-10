@@ -7,7 +7,10 @@ import scala.language.implicitConversions
 
 trait Directives {
 
-  def reject: Route = (_, _) => RouteResult.Rejected
+  def reject(description: String): Route = (_, rctx) => {
+    rctx.rejected(description)
+    RouteResult.Rejected
+  }
 
   def extractContext: Directive1[RequestContext] =
     Directive[Tuple1[RequestContext]]("extractContext", reportValues = false)(
@@ -34,7 +37,7 @@ trait Directives {
   def paramOpt(name: Symbol): Directive1[Option[String]] =
     extract("paramOpt", true)(_.params.get(name.name).flatMap(_.headOption))
 
-  def extractUnmatchedLoc: Directive1[List[String]] =
+  def extractUnmatchedPath: Directive1[List[String]] =
     extract("extractUnmatchedLoc", reportValues = false)(ctx => ctx.unmatchedPath)
 
   def mapInnerRoute(f: Route ⇒ Route): Directive[Unit] =
@@ -45,37 +48,37 @@ trait Directives {
       inner(f(ctx), rctx)
     }
 
-  def tprovide[L: Tuple](value: L): Directive[L] =
-    Directive("tprovide", reportValues = false)(inner => inner(value))
+  def tprovide[L: Tuple](description: String)(value: L): Directive[L] =
+    Directive(description, reportValues = false)(inner => inner(value))
 
   def pathPrefix[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
-    extractUnmatchedLoc
+    extractUnmatchedPath
       .tflatMap(s"prefix(${m.description})", reportValues = true) {
-        case Tuple1(unmatchedLoc) =>
-          m(unmatchedLoc) match {
+        case Tuple1(unmatchedPath) =>
+          m(unmatchedPath) match {
             case Right((t, rest)) =>
-              mapRequestContext(_ withUnmatchedPath rest) & tprovide(t)(m.tuple)
-            case Left(_) => reject
+              mapRequestContext(_ withUnmatchedPath rest) & tprovide(s"prefix(${m.description}).provide")(t)(m.tuple)
+            case Left(_) => reject(s"path prefix(${m.description}): no match, unmatched path: $unmatchedPath")
           }
       }
   }
 
   def pathEnd: Directive0 =
-    extractUnmatchedLoc.tflatMap("end", reportValues = true) {
-      case Tuple1(Nil) => tprovide(())
-      case other       => reject
+    extractUnmatchedPath.tflatMap("end", reportValues = true) {
+      case Tuple1(Nil)   => tprovide("end.provide")(())
+      case unmatchedPath => reject(s"path end: not end, unmatched path: $unmatchedPath")
     }
 
   def path[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
-    extractUnmatchedLoc
+    extractUnmatchedPath
       .tflatMap(s"path(${m.description})", reportValues = true) {
-        case Tuple1(unmatchedLoc) =>
-          m(unmatchedLoc) match {
-            case Right((t, Nil)) => tprovide(t)(m.tuple) & mapRequestContext(_ withUnmatchedPath Nil)
-            case Right(_)        => reject
-            case Left(_)         => reject
+        case Tuple1(unmatchedPath) =>
+          m(unmatchedPath) match {
+            case Right((t, Nil))  => tprovide("path")(t)(m.tuple) & mapRequestContext(_ withUnmatchedPath Nil)
+            case Right((_, tail)) => reject(s"path(${m.description}): not end, unmatched path: $unmatchedPath, remaining path: $tail")
+            case Left(_)          => reject(s"path(${m.description}): no match, unmatched path: $unmatchedPath")
           }
       }
   }

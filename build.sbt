@@ -1,11 +1,9 @@
 enablePlugins(ScalaJSPlugin)
 
-addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.3.0-M4")
-
 libraryDependencies ++= Seq(
   "org.scala-js" %%% "scalajs-dom" % "0.9.6",
-  "com.raquo" %%% "airstream" % "0.5.1",
-  "com.lihaoyi" %%% "utest" % "0.6.4" % Test
+  "com.raquo" %%% "laminar" % "0.6",
+  "com.lihaoyi" %%% "utest" % "0.6.6" % Test
 )
 
 scalaJSUseMainModuleInitializer := true
