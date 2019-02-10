@@ -16,17 +16,17 @@ private[routing] class RoutingContext {
   def enter(name: String): Unit = {
     _fullPath = name :: _fullPath
     _fullPathStr = pathToStr(_fullPath)
-    Logging.debug(s"enter: $name", _fullPathStr)
+    Logging.trace(s"enter: $name", _fullPathStr)
   }
 
   def leave(): Unit = {
     _fullPath = _fullPath.tail
     _fullPathStr = pathToStr(_fullPath)
-    Logging.debug(s"leave", _fullPathStr)
+    Logging.trace(s"leave", _fullPathStr)
   }
 
   def rejected(description: String): Unit = {
-    Logging.debug(s"rejected: $description")
+    Logging.trace(s"rejected: $description")
   }
 
   def roll(): Unit = {
@@ -43,7 +43,7 @@ private[routing] class RoutingContext {
   }
 
   def reportNewValue[T](nv: T): Unit = {
-    Logging.debug(s"new value for ${_fullPathStr}", nv)
+    Logging.trace(s"new value for ${_fullPathStr}", nv)
     currentDataMap = currentDataMap + (_fullPathStr -> nv)
   }
 

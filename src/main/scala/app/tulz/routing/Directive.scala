@@ -80,7 +80,7 @@ object ConjunctionMagnet {
         Directive[composition.C](s"${underlying.path}&${other.path}", underlying.reportValues || other.reportValues) {
           inner ⇒
             underlying.tapply { prefix ⇒ other.tapply { suffix ⇒ inner(composition.gc(prefix, suffix)) } }
-        }(Tuple.yes) // we know that join will only ever produce tuples
+        }(Tuple.yes)
     }
 }
 
