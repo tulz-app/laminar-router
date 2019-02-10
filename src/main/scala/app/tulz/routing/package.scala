@@ -1,6 +1,5 @@
 package app.tulz
 
-import app.tulz.routing.util.ApplyConverterInstances
 import com.raquo.airstream.core.Subscription
 import com.raquo.airstream.ownership.Owner
 import com.raquo.airstream.signal.Signal
@@ -15,15 +14,26 @@ package object routing {
   def runRoute(route: Route, contexts: Signal[RequestContext])(implicit ec: ExecutionContext, owner: Owner): Subscription = {
     val routingContext = new RoutingContext
 
+    var snapshot     = routingContext.currentDataMap
+    var counter: Int = 0
+
     val subscription = contexts.foreach { ctx =>
+      routingContext.currentDataMap = snapshot
+      counter += 1
+      val currentCounter = counter
       route(ctx, routingContext) match {
-        case RouteResult.Rejected => ()
         case RouteResult.Complete(action) =>
           if (routingContext.routeChanged) {
-            action() // TODO future here unused
-          } else {
-            ()
+            if (currentCounter == counter) {
+              action().foreach { a =>
+                if (currentCounter == counter) {
+                  a()
+                  snapshot = routingContext.currentDataMap
+                }
+              }
+            }
           }
+        case RouteResult.Rejected =>
       }
 
       routingContext.roll()
@@ -32,10 +42,9 @@ package object routing {
     subscription
   }
 
-
-  type Directive0 = Directive[Unit]
-  type Directive1[T] = Directive[Tuple1[T]]
-  type PathMatcher0 = PathMatcher[Unit]
+  type Directive0      = Directive[Unit]
+  type Directive1[T]   = Directive[Tuple1[T]]
+  type PathMatcher0    = PathMatcher[Unit]
   type PathMatcher1[T] = PathMatcher[Tuple1[T]]
 
   type DirectivePath = String
@@ -51,19 +60,6 @@ package object routing {
           rctx.currentDataMap = snapshot
           other(ctx, rctx)
       }
-    }
-  }
-
-  trait ToRoute {
-
-    def route: Route
-
-  }
-
-  implicit def anyToRoute[T](u: => T)(implicit ec: ExecutionContext): ToRoute = {
-    new ToRoute {
-      override def route: Route =
-        (_, _) => RouteResult.Complete(() => Future.successful(u))
     }
   }
 

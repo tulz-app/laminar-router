@@ -28,8 +28,11 @@ object Directive {
 
   implicit class SingleValueModifiers[L](underlying: Directive1[L]) extends AnyRef {
 
-    def map[R: Tuple](f: L ⇒ R): Directive[R] =
-      underlying.tmap { case Tuple1(value) ⇒ f(value) }
+    def map[R](f: L ⇒ R): Directive1[R] =
+      underlying.tmap { case Tuple1(value) ⇒ Tuple1(f(value)) }
+
+    def flatMap[R](path: String, reportValues: Boolean)(f: L ⇒ Directive1[R]): Directive1[R] =
+      underlying.tflatMap(path, reportValues) { case Tuple1(value) ⇒ f(value) }
 
     def collect[R: Tuple](description: String)(f: PartialFunction[L, R]): Directive[R] =
       underlying.tcollect(description) {

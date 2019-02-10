@@ -30,12 +30,20 @@ trait Directives {
     extract(description, reportValues)(ctx => ctx).collect(description)(f)
 
   def param(name: Symbol): Directive1[String] =
-    extract("param", true)(_.params.get(name.name).flatMap(_.headOption)).collect("param") {
+    extract(s"param(${name.name})", reportValues = true)(_.params.get(name.name).flatMap(_.headOption)).collect("param") {
       case Some(value) => Tuple1(value)
     }
 
   def paramOpt(name: Symbol): Directive1[Option[String]] =
-    extract("paramOpt", true)(_.params.get(name.name).flatMap(_.headOption))
+    extract(s"paramOpt(${name.name})", reportValues = true)(_.params.get(name.name).flatMap(_.headOption))
+
+  def cookie(name: String): Directive1[String] =
+    extract(s"cookie($name)", reportValues = true)(_.cookies.get(name)).collect("cookie") {
+      case Some(value) => Tuple1(value)
+    }
+
+  def cookieOpt(name: String): Directive1[Option[String]] =
+    extract(s"cookieOpt($name)", reportValues = true)(_.cookies.get(name))
 
   def extractUnmatchedPath: Directive1[List[String]] =
     extract("extractUnmatchedLoc", reportValues = false)(ctx => ctx.unmatchedPath)
@@ -50,6 +58,9 @@ trait Directives {
 
   def tprovide[L: Tuple](description: String)(value: L): Directive[L] =
     Directive(description, reportValues = false)(inner => inner(value))
+
+  def provide[L](description: String)(value: L): Directive1[L] =
+    tprovide(description)(Tuple1(value))
 
   def pathPrefix[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
@@ -83,11 +94,13 @@ trait Directives {
       }
   }
 
-  def complete[T](action: => Future[T])(implicit ec: ExecutionContext): Route = { (_, _) =>
+  def completeF[T](action: => Future[() => Unit])(implicit ec: ExecutionContext): Route = { (_, _) =>
     RouteResult.Complete(() => action)
   }
 
-  def complete[T](action: ToRoute)(implicit ec: ExecutionContext): Route = action.route
+  def complete[T](action: => Unit)(implicit ec: ExecutionContext): Route = { (_, _) =>
+    RouteResult.Complete(() => Future.successful(() => action))
+  }
 
   //  class MaybeOverrideCDirective[T, U >: T](
   //    self: Directive[T],

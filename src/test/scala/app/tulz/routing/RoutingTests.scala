@@ -1,5 +1,6 @@
 package app.tulz.routing
 
+import app.tulz.testing._
 import com.raquo.airstream.core.{Observer, Subscription}
 import com.raquo.airstream.ownership.Owner
 import com.raquo.airstream.signal.{Signal, Var}
@@ -44,8 +45,10 @@ object RoutingTests extends TestSuite {
           }
         }
         requestContext.path()
-        probe.toList ==> List("end")
-        sub.kill()
+        delayedFuture(5) {
+          probe.toList ==> List("end")
+          sub.kill()
+        }
       }
 
       "alternate path" - new WithRoute {
@@ -53,19 +56,21 @@ object RoutingTests extends TestSuite {
         def route =
           path("a") {
             complete {
-              Future.successful(probe.append("a"))
+              probe.append("a")
             }
           } ~
             path("b") {
               complete {
-                Future.successful(probe.append("b"))
+                probe.append("b")
               }
             }
 
-        requestContext.path("b")
-        requestContext.path("a")
-        probe.toList ==> List("b", "a")
-        sub.kill()
+        delayedFuture(5) {
+          requestContext.path("b")
+          requestContext.path("a")
+          probe.toList ==> List("b", "a")
+          sub.kill()
+        }
       }
 
       "deep alternate path" - new WithRoute {
@@ -114,14 +119,16 @@ object RoutingTests extends TestSuite {
         requestContext.path("prefix2", "prefix3", "suffix3")
         requestContext.params('param1 -> "param-value")
 
-        probe.toList ==> List(
-          "prefix2/prefix3/suffix2",
-          "prefix1/prefix2",
-          "prefix1/prefix2/suffix1",
-          "prefix2/prefix3",
-          "prefix2/prefix3/suffix3?param1=param-value"
-        )
-        sub.kill()
+        delayedFuture(5) {
+          probe.toList ==> List(
+            "prefix2/prefix3/suffix2",
+            "prefix1/prefix2",
+            "prefix1/prefix2/suffix1",
+            "prefix2/prefix3",
+            "prefix2/prefix3/suffix3?param1=param-value"
+          )
+          sub.kill()
+        }
       }
 
       "signal" - new WithRoute {
@@ -143,16 +150,19 @@ object RoutingTests extends TestSuite {
         requestContext.path("prefix1", "prefix2", "other-suffix-2")
         requestContext.path("prefix1", "prefix2", "other-suffix-3")
 
-        probe.toList ==> List(
-          "prefix1/prefix2/ - other suffix"
-        )
+        delayedFuture(5) {
 
-        nSignals(3, paramSignal).map { params =>
-          params ==> List(
-            "other-suffix-1",
-            "other-suffix-2",
-            "other-suffix-4",
+          probe.toList ==> List(
+            "prefix1/prefix2/ - other suffix"
           )
+
+          nSignals(3, paramSignal).map { params =>
+            params ==> List(
+              "other-suffix-1",
+              "other-suffix-2",
+              "other-suffix-4"
+            )
+          }
         }
 
 //        sub.kill()
@@ -175,52 +185,18 @@ object RoutingTests extends TestSuite {
         requestContext.params('param1 -> "param1-value2")
         requestContext.path("prefix1", "prefix2", "other-suffix-2")
 
-        probe.toList ==> List(
-          "prefix1/prefix2/other-suffix-1?param1=param1-value1",
-          "prefix1/prefix2/other-suffix-1?param1=param1-value2",
-          "prefix1/prefix2/other-suffix-2?param1=param1-value2",
-        )
-        sub.kill()
+        delayedFuture(5) {
+
+          probe.toList ==> List(
+            "prefix1/prefix2/other-suffix-1?param1=param1-value1",
+            "prefix1/prefix2/other-suffix-1?param1=param1-value2",
+            "prefix1/prefix2/other-suffix-2?param1=param1-value2"
+          )
+          sub.kill()
+        }
       }
 
-
     }
-
-//    "sub signal works" - {
-//      val route = pathPrefix("prefix").sub { _ =>
-//        path(segment).signal.map { $segment =>
-//          PageWithSignal($segment)
-//        }
-//      }
-//      * - {
-//        val $locs = generateSignals(
-//          List(
-//            loc("prefix", "1"),
-//            loc("prefix", "2"),
-//            loc("prefix", "3"),
-//            loc("prefix", "2"),
-//            loc("prefix2", "2"),
-//            loc("prefix", "5"),
-//            loc("prefix", "6"),
-//            loc("prefix", "7"),
-//            loc("prefix", "6")
-//          )
-//        )
-//        val $pages = runRoute(route, $locs, $context)
-//        nthSignal(3, $pages).flatMap {
-//          case Some(page) =>
-//            nSignals(4, page.$segment).map { subLocs =>
-//              subLocs ==> List(
-//                "5",
-//                "6",
-//                "7",
-//                "6"
-//              )
-//            }
-//          case None => Future.failed(new RuntimeException("no prefix match"))
-//        }
-//      }
-//    }
 
   }
 

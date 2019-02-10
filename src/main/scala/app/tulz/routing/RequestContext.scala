@@ -1,7 +1,7 @@
 package app.tulz.routing
 
-import com.raquo.laminar.api.L._
 import app.tulz.cookies.Cookies
+import com.raquo.laminar.api.L._
 import org.scalajs.dom
 import org.scalajs.dom.raw.Location
 
@@ -17,7 +17,7 @@ final case class RequestContext(
 
 }
 
-class RequestContextSignal(
+class BrowserRequestContext(
   $locations: Signal[List[String]],
   $params: Signal[Map[String, Seq[String]]],
   $cookies: Signal[Map[String, String]],
@@ -26,21 +26,26 @@ class RequestContextSignal(
 
   val signal: Signal[RequestContext] =
     $locations.combineWith($params).combineWith($cookies).map {
-      case ((path, params), cookies) => RequestContext(path, params, cookies)
+      case ((path, params), cookies) =>
+        RequestContext(path, params, cookies)
     }
 
   def refreshCookies(): Unit = $cookieRefresh.onNext(())
 
 }
 
-object RequestContext {
+object BrowserRequestContext {
 
-  def signal(includeCookies: Option[Set[String]])(implicit owner: Owner): RequestContextSignal = {
+  def signal(includeCookies: Option[Set[String]]): BrowserRequestContext = {
     val (cookiesSignal, cookieRefreshObserver) = cookies(includeCookies)
-    val $locations                             = windowEvents.onPopState.map(_ => dom.window.location).toSignal(dom.window.location)
-    new RequestContextSignal(
-      $locations.map(extractPath),
-      $locations.map(extractParams),
+    val $locations                             = windowEvents.onPopState.map(_ =>
+      extractPath(dom.window.location) -> extractParams(dom.window.location)
+    ).toSignal(
+      extractPath(dom.window.location) -> extractParams(dom.window.location)
+    )
+    new BrowserRequestContext(
+      $locations.map(_._1),
+      $locations.map(_._2),
       cookiesSignal,
       cookieRefreshObserver
     )
