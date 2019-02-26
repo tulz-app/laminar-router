@@ -51,7 +51,6 @@ object Directive {
           rctx.previousValue[Var[L]] match {
             case None =>
               val var$ = Var(value._1)
-//              Logging.trace(s"signal initial value: ${value._1}")
               // TODO don't understand this stuff, but this directive never 'enters' before this code, so the value is saved for the underlying directive, which is what we want
               rctx.reportNewValue(var$)
               Logging.trace(s"signal - calling inner")
@@ -59,7 +58,6 @@ object Directive {
             case Some(var$) =>
               rctx.reportNewValue(var$)
               var$.writer.onNext(value._1)
-//              Logging.trace(s"signal new value: ${value._1}")
               Logging.trace(s"signal - calling inner")
               inner(Tuple1(var$.signal))
           }

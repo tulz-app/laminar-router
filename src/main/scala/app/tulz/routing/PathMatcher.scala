@@ -91,6 +91,8 @@ trait PathMatchers {
 
     def map[R](f: T ⇒ R): PathMatcher1[R] = matcher.tmap { case Tuple1(e) ⇒ Tuple1(f(e)) }
 
+    def collect[R](description: String)(f: PartialFunction[T, R]): PathMatcher1[R] = matcher.tcollect(description) { case Tuple1(e) if f.isDefinedAt(e) ⇒ Tuple1(f(e)) }
+
     def flatMap[R](description: String)(f: T ⇒ PathMatcher1[R]): PathMatcher1[R] =
       matcher.tflatMap(description) { case Tuple1(e) ⇒ f(e) }
   }
