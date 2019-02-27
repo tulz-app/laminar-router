@@ -2,29 +2,40 @@ package app.tulz.debug
 
 object Logging {
 
-  object level {
+  private var sinks: Map[String, Seq[LogSink]] = Map.empty
 
-    val trace = 1
-    val debug = 2
-    val info = 3
-    val error = 4
-
+  def addSink(logStreamName: String, minLevel: Int)(f: (String, Seq[Any]) => Unit): Unit = {
+    val sink = new LogSink {
+      override def message(level: Int, m: String, args: Any*): Unit =
+        if (level >= minLevel) {
+          f(m, args)
+        }
+    }
+    sinks = sinks.updated(logStreamName, sinks.getOrElse(logStreamName, Seq.empty) :+ sink)
   }
 
-  def trace(message: String, extra: Any*): Unit = {
-    app.tulz.debug.unsafe.logger.foreach(_(level.trace, message, extra))
-  }
+  def getLogger(logStreamName: String): Logger = new Logger {
 
-  def debug(message: String, extra: Any*): Unit = {
-    app.tulz.debug.unsafe.logger.foreach(_(level.debug, message, extra))
-  }
+    def trace(message: String, extra: Any*): Unit = {
+      sinks.getOrElse(logStreamName, Seq.empty).foreach(_.message(LogLevel.trace, message, extra))
+    }
 
-  def info(message: String, extra: Any*): Unit = {
-    app.tulz.debug.unsafe.logger.foreach(_(level.info, message, extra))
-  }
+    def debug(message: String, extra: Any*): Unit = {
+      sinks.getOrElse(logStreamName, Seq.empty).foreach(_.message(LogLevel.debug, message, extra))
+    }
 
-  def error(message: String, extra: Any*): Unit = {
-    app.tulz.debug.unsafe.logger.foreach(_(level.error, message, extra))
+    def info(message: String, extra: Any*): Unit = {
+      sinks.getOrElse(logStreamName, Seq.empty).foreach(_.message(LogLevel.info, message, extra))
+    }
+
+    def warn(message: String, extra: Any*): Unit = {
+      sinks.getOrElse(logStreamName, Seq.empty).foreach(_.message(LogLevel.warn, message, extra))
+    }
+
+    def error(message: String, extra: Any*): Unit = {
+      sinks.getOrElse(logStreamName, Seq.empty).foreach(_.message(LogLevel.error, message, extra))
+    }
+
   }
 
 }

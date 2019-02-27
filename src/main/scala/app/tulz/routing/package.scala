@@ -49,17 +49,28 @@ package object routing {
 
   type DirectivePath = String
 
+  sealed trait RouteResult
+
+  object RouteResult {
+    case class Complete(action: () => Future[() => Unit]) extends RouteResult
+    case object Rejected extends RouteResult
+  }
+
   type Route = (RequestContext, RoutingContext) ⇒ RouteResult
 
   implicit class RouteWithConcatenation(val route: Route) {
     def ~(other: Route)(implicit ec: ExecutionContext): Route = { (ctx, rctx) ⇒
       val snapshot = rctx.currentDataMap
-      route(ctx, rctx) match {
-        case RouteResult.Complete(action) ⇒ RouteResult.Complete(action)
+      rctx.enter('~')
+      val result = route(ctx, rctx) match {
+        case RouteResult.Complete(action) ⇒
+          RouteResult.Complete(action)
         case RouteResult.Rejected ⇒
           rctx.currentDataMap = snapshot
           other(ctx, rctx)
       }
+      rctx.leave()
+      result
     }
   }
 

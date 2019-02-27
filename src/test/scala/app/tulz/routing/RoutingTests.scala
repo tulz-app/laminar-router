@@ -63,12 +63,18 @@ object RoutingTests extends TestSuite {
               complete {
                 probe.append("b")
               }
+            } ~
+            path("c") {
+              complete {
+                probe.append("c")
+              }
             }
 
         delayedFuture(5) {
           requestContext.path("b")
+          requestContext.path("c")
           requestContext.path("a")
-          probe.toList ==> List("b", "a")
+          probe.toList ==> List("b", "c", "a")
           sub.kill()
         }
       }

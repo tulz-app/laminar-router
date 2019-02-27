@@ -1,32 +1,18 @@
 package app.tulz.routing
 
-import app.tulz.debug.Logging
-
 private[routing] class RoutingContext {
 
-  private var previousDataMap: Map[DirectivePath, Any]        = Map.empty
-  private[routing] var currentDataMap: Map[DirectivePath, Any] = Map.empty
+  private var previousDataMap: Map[String, Any]         = Map.empty
+  private[routing] var currentDataMap: Map[String, Any] = Map.empty
 
-  private var _fullPath: List[String] = Nil
   private var _fullPathStr: String = ""
 
-  private def pathToStr(p: List[String]): String =
-    p.reverse.mkString(" / ")
-
-  def enter(name: String): Unit = {
-    _fullPath = name :: _fullPath
-    _fullPathStr = pathToStr(_fullPath)
-    Logging.trace(s"enter: $name", _fullPathStr)
+  def enter(c: Char): Unit = {
+    _fullPathStr = _fullPathStr + c
   }
 
   def leave(): Unit = {
-    _fullPath = _fullPath.tail
-    _fullPathStr = pathToStr(_fullPath)
-    Logging.trace(s"leave", _fullPathStr)
-  }
-
-  def rejected(description: String): Unit = {
-    Logging.trace(s"rejected: $description")
+    _fullPathStr = _fullPathStr.dropRight(1)
   }
 
   def roll(): Unit = {
@@ -43,7 +29,6 @@ private[routing] class RoutingContext {
   }
 
   def reportNewValue[T](nv: T): Unit = {
-    Logging.trace(s"new value for ${_fullPathStr}", nv)
     currentDataMap = currentDataMap + (_fullPathStr -> nv)
   }
 
