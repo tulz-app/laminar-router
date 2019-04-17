@@ -1,5 +1,7 @@
 package app.tulz.routing
 
+import scala.scalajs.js
+
 private[routing] class RoutingContext {
 
   private var previousDataMap: Map[String, Any]         = Map.empty
@@ -29,7 +31,11 @@ private[routing] class RoutingContext {
   }
 
   def reportNewValue[T](nv: T): Unit = {
-    currentDataMap = currentDataMap + (_fullPathStr -> nv)
+    if (nv != () && !js.isUndefined(nv)) {
+      currentDataMap = currentDataMap + (_fullPathStr -> nv)
+    } else {
+      currentDataMap = currentDataMap - _fullPathStr
+    }
   }
 
 }
