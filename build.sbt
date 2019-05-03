@@ -1,9 +1,9 @@
 enablePlugins(ScalaJSPlugin)
 
 libraryDependencies ++= Seq(
-  "org.scala-js" %%% "scalajs-dom" % "0.9.6",
-  "com.raquo" %%% "laminar" % "0.6",
-  "com.lihaoyi" %%% "utest" % "0.6.6" % Test
+  "org.scala-js" %%% "scalajs-dom" % "0.9.7",
+  "com.raquo" %%% "laminar" % "0.7",
+  "com.lihaoyi" %%% "utest" % "0.6.7" % Test
 )
 
 scalaJSUseMainModuleInitializer := true
