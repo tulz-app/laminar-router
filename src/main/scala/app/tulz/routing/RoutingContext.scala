@@ -34,7 +34,7 @@ private[routing] class RoutingContext {
     if (nv != () && !js.isUndefined(nv)) {
       currentDataMap = currentDataMap + (_fullPathStr -> nv)
     } else {
-      currentDataMap = currentDataMap - _fullPathStr
+      currentDataMap = currentDataMap + (_fullPathStr -> "~undefined")
     }
   }
 
