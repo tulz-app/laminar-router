@@ -18,7 +18,7 @@ package object routing {
     var counter: Int = 0
 
     val subscription = contexts.foreach { ctx =>
-      routingContext.currentDataMap = snapshot
+      routingContext.setDataMap(snapshot)
       counter += 1
       val currentCounter = counter
       route(ctx, routingContext) match {
@@ -61,12 +61,12 @@ package object routing {
   implicit class RouteWithConcatenation(val route: Route) {
     def ~(other: Route)(implicit ec: ExecutionContext): Route = { (ctx, rctx) ⇒
       val snapshot = rctx.currentDataMap
-      rctx.enter('~')
+      rctx.enter("~")
       val result = route(ctx, rctx) match {
         case RouteResult.Complete(action) ⇒
           RouteResult.Complete(action)
         case RouteResult.Rejected ⇒
-          rctx.currentDataMap = snapshot
+          rctx.setDataMap(snapshot)
           other(ctx, rctx)
       }
       rctx.leave()

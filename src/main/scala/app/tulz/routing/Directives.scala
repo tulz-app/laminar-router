@@ -2,6 +2,7 @@ package app.tulz.routing
 
 import app.tulz.routing.util.Tuple
 
+import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
 
@@ -68,17 +69,23 @@ trait Directives {
         case Tuple1(unmatchedPath) =>
           m(unmatchedPath) match {
             case Right((t, rest)) =>
-              mapRequestContext(_ withUnmatchedPath rest) & tprovide(t)(m.tuple)
+              mapRequestContext(_ withUnmatchedPath rest) & tprovide(t)
             case Left(_) => reject
           }
       }
   }
 
   def pathEnd: Directive0 =
-    extractUnmatchedPath.tflatMap {
-      case Tuple1(Nil)   => tprovide(())
-      case unmatchedPath => reject
-    }
+    Directive[Unit](
+      inner =>
+        (ctx, rctx) => {
+          if (ctx.unmatchedPath.isEmpty) {
+            inner(())(ctx, rctx)
+          } else {
+            RouteResult.Rejected
+          }
+        }
+    )
 
   def path[T](m: PathMatcher[T]): Directive[T] = {
     import m.tuple
@@ -101,45 +108,35 @@ trait Directives {
     RouteResult.Complete(() => Future.successful(() => action))
   }
 
-  //  class MaybeOverrideCDirective[T, U >: T](
-  //    self: Directive[T],
-  //    overrideWith: PartialFunction[RequestContext, U]
-  //  ) extends Directive[U]("moc") {
-  //
-  //    setParent(self)
-  //
-  //    def run(loc: Loc, ctx: RequestContext, rctx: RoutingContext): DirectiveResult[U] = {
-  //      self.run(loc, ctx, rctx) match {
-  //        case DirectiveResult.Missed => DirectiveResult.Missed
-  //        case DirectiveResult.Matched(t, nextLoc, nextCtx) =>
-  //          if (overrideWith.isDefinedAt(ctx)) {
-  //            DirectiveResult.Matched(overrideWith(ctx), nextLoc, nextCtx)
-  //          } else {
-  //            DirectiveResult.Matched(t, nextLoc, nextCtx)
-  //          }
-  //      }
-  //    }
-  //
-  //  }
-  //
-  //  class MaybeOverrideDirective[T, U >: T](
-  //    self: Directive[T],
-  //    overrideWith: RequestContext => Option[U]
-  //  ) extends Directive[U]("mo") {
-  //
-  //    setParent(self)
-  //
-  //    def run(loc: Loc, ctx: RequestContext, rctx: RoutingContext): DirectiveResult[U] = {
-  //      self.run(loc, ctx, rctx) match {
-  //        case DirectiveResult.Missed => DirectiveResult.Missed
-  //        case DirectiveResult.Matched(t, nextLoc, nextCtx) =>
-  //          overrideWith(ctx) match {
-  //            case None       => DirectiveResult.Matched(t, nextLoc, nextCtx)
-  //            case Some(ovrd) => DirectiveResult.Matched(ovrd, nextLoc, nextCtx)
-  //          }
-  //      }
-  //    }
-  //
-  //  }
+  def debug(message: => String)(subRoute: Route): Route =
+    (ctx, rctx) => {
+      println(message)
+      subRoute(ctx, rctx)
+    }
+
+  def concat(routes: Route*): Route = {
+    val routesWithIndex = routes.zipWithIndex.toList
+    (ctx, rctx) => {
+      val snapshot = rctx.currentDataMap
+
+      @tailrec
+      def findFirst(rs: List[(Route, Int)]): RouteResult =
+        rs match {
+          case Nil => RouteResult.Rejected
+          case (route, index) :: tail =>
+            rctx.enter(index.toString)
+            route(ctx, rctx) match {
+              case c@RouteResult.Complete(_) ⇒
+                rctx.leave()
+                c
+              case RouteResult.Rejected ⇒
+                rctx.setDataMap(snapshot)
+                rctx.leave()
+                findFirst(tail)
+            }
+        }
+        findFirst(routesWithIndex)
+    }
+  }
 
 }

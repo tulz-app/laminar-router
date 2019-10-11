@@ -1,6 +1,8 @@
 package app.tulz.routing
+
 import app.tulz.routing.util.{ApplyConverter, Tuple}
 import com.raquo.airstream.signal.{Signal, Var}
+import scala.language.implicitConversions
 
 class Directive[L](
   val tapply: (L ⇒ Route) => Route
@@ -68,24 +70,21 @@ object Directive {
     Directive[L](_ => route)
 
   implicit def addDirectiveApply[L: Tuple](directive: Directive[L])(implicit hac: ApplyConverter[L]): hac.In ⇒ Route =
-    f ⇒
+    subRoute ⇒
       (ctx, rctx) => {
-        rctx.enter('/')
-        val result = directive.tapply(hac(f))(ctx, rctx)
+        rctx.enter("/")
+        val result = directive.tapply(hac(subRoute))(ctx, rctx)
         rctx.leave()
         result
       }
 
-  implicit class NullaryDirectiveExt(val directive: Directive0) extends AnyRef {
-
-    def apply(subRoute: Route): Route = { (ctx, rctx) =>
-      rctx.enter('/')
+  implicit def addNullaryDirectiveApply(directive: Directive0): Route => Route =
+    subRoute => (ctx, rctx) => {
+      rctx.enter("/")
       val result = directive.tapply(_ => subRoute)(ctx, rctx)
       rctx.leave()
       result
     }
-
-  }
 
   implicit class SingleValueModifiers[L](underlying: Directive1[L]) extends AnyRef {
 
