@@ -189,7 +189,7 @@ object RoutingTests extends TestSuite {
               "other-suffix-3"
             )
           }
-          .andThen { _ =>
+          .map { _ =>
             probe.toList ==> List(
               "prefix1/prefix2"
             )
