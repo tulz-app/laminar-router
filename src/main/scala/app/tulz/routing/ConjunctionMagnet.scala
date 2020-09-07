@@ -1,7 +1,8 @@
 package app.tulz.routing
 
-import app.tulz.routing.TupleComposition.Composition
-import app.tulz.routing.util.Tuple
+import app.tulz.util.Tuple
+import app.tulz.util.TupleComposition.Composition
+
 import scala.language.implicitConversions
 
 trait ConjunctionMagnet[L] {
@@ -15,9 +16,9 @@ object ConjunctionMagnet {
     new ConjunctionMagnet[L] {
       type Out = Directive[composition.C]
       def apply(underlying: Directive[L]): Directive[composition.C] =
-        Directive[composition.C] { inner ⇒
-          underlying.tapply { prefix ⇒
-            other.tapply { suffix ⇒
+        Directive[composition.C] { inner =>
+          underlying.tapply { prefix =>
+            other.tapply { suffix =>
               inner(composition.gc(prefix, suffix))
             }
           }

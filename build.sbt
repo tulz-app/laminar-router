@@ -1,13 +1,21 @@
 enablePlugins(ScalaJSPlugin)
 
 libraryDependencies ++= Seq(
-  "org.scala-js" %%% "scalajs-dom" % "0.9.7",
-  "com.raquo" %%% "laminar" % "0.7",
-  "com.lihaoyi" %%% "utest" % "0.6.7" % Test
+  "com.raquo" %%% "laminar" % "0.10.2",
+  "com.lihaoyi" %%% "utest" % "0.7.4" % Test
+)
+
+scalacOptions := Seq(
+  "-unchecked",
+  "-deprecation",
+  "-feature",
+  "-Xlint:nullary-unit,inaccessible,infer-any,missing-interpolator,private-shadow,type-parameter-shadow,poly-implicit-overload,option-implicit,delayedinit-select,stars-align",
+  "-Xcheckinit",
+  "-Ywarn-value-discard",
+  "-encoding",
+  "utf8"
 )
 
 scalaJSUseMainModuleInitializer := true
-
-emitSourceMaps := false
 
 testFrameworks += new TestFramework("utest.runner.Framework")

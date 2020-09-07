@@ -1,11 +1,14 @@
 package app.tulz.routing
 
+import app.tulz.util.Tuple
+
 import scala.language.implicitConversions
-import scala.util.{Failure, Success, Try}
+import scala.util.Failure
+import scala.util.Success
+import scala.util.Try
 import scala.util.matching.Regex
 import scala.util.matching.Regex.Match
-import app.tulz.routing.TupleComposition.Composition
-import app.tulz.routing.util.Tuple
+import app.tulz.util.TupleComposition.Composition
 
 abstract class PathMatcher[T](val description: String)(implicit val tuple: Tuple[T]) {
   self =>
@@ -63,6 +66,8 @@ abstract class PathMatcher[T](val description: String)(implicit val tuple: Tuple
       }
   }
 
+  override def toString: String = description
+
 }
 
 object PathMatcher {
@@ -89,15 +94,13 @@ trait PathMatchers {
 
   implicit class PathMatcher1Ops[T](matcher: PathMatcher1[T]) {
 
-    def map[R](f: T ⇒ R): PathMatcher1[R] = matcher.tmap { case Tuple1(e) ⇒ Tuple1(f(e)) }
+    def map[R](f: T => R): PathMatcher1[R] = matcher.tmap { case Tuple1(e) => Tuple1(f(e)) }
 
-    def collect[R](description: String)(f: PartialFunction[T, R]): PathMatcher1[R] = matcher.tcollect(description) { case Tuple1(e) if f.isDefinedAt(e) ⇒ Tuple1(f(e)) }
+    def collect[R](description: String)(f: PartialFunction[T, R]): PathMatcher1[R] = matcher.tcollect(description) { case Tuple1(e) if f.isDefinedAt(e) => Tuple1(f(e)) }
 
-    def flatMap[R](description: String)(f: T ⇒ PathMatcher1[R]): PathMatcher1[R] =
-      matcher.tflatMap(description) { case Tuple1(e) ⇒ f(e) }
+    def flatMap[R](description: String)(f: T => PathMatcher1[R]): PathMatcher1[R] =
+      matcher.tflatMap(description) { case Tuple1(e) => f(e) }
   }
-
-
 
   def segment: PathMatcher1[String] = new PathMatcher1[String]("segment") {
 

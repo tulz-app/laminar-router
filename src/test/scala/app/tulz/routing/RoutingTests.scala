@@ -1,9 +1,8 @@
 package app.tulz.routing
 
+import com.raquo.laminar.api.L._
 import app.tulz.testing._
-import com.raquo.airstream.core.{Observer, Subscription}
 import com.raquo.airstream.ownership.Owner
-import com.raquo.airstream.signal.{Signal, Var}
 import utest._
 
 import scala.collection.mutable.ListBuffer
@@ -12,201 +11,223 @@ import scala.concurrent.{Future, Promise}
 import scala.scalajs.js.timers._
 import directives._
 
-import scala.collection.breakOut
+import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration._
 
 object RoutingTests extends TestSuite {
 
   implicit val testOwner: Owner = new Owner {}
 
   case class Page(p: String)
-  case class PageWithSignal($segment: Signal[String])
+  case class PageWithSignal(segment: Signal[String])
 
-  abstract class WithRoute {
-    val requestContext = new TestRequestContext()
-    val probe          = new ListBuffer[String]()
+  private def routeTestF[T](
+    route: ListBuffer[String] => Route,
+    wait: FiniteDuration = 10.millis,
+    init: TestRouteLocationProvider => Unit = _ => {}
+  )(checks: ListBuffer[String] => Future[T]): Future[T] = {
+    val locationProvider = new TestRouteLocationProvider()
+    val probe            = new ListBuffer[String]()
 
-    def route: Route
-
-    val sub: Subscription = runRoute(
-      route,
-      requestContext.signal
-    )
+    val sub = runRoute(route(probe), locationProvider).foreach(_())(unsafeWindowOwner)
+    val future = delayedFuture(wait).flatMap { _ =>
+      try {
+        checks(probe)
+      } finally {
+        sub.kill()
+      }
+    }
+    init(locationProvider)
+    future
 
   }
 
-  val tests = Tests {
+  private def routeTest[T](
+    route: ListBuffer[String] => Route,
+    wait: FiniteDuration = 10.millis,
+    init: TestRouteLocationProvider => Unit = _ => {}
+  )(checks: ListBuffer[String] => T): Future[T] = routeTestF[T](route, wait, init)(probe => Future.successful(checks(probe)))
 
-    "routing" - {
+  val tests: Tests = Tests {
 
-      "simple pathEnd" - new WithRoute {
-        def route = pathEnd {
-          complete {
-            probe.append("end")
-          }
-        }
-        requestContext.path()
-        delayedFuture(5) {
-          probe.toList ==> List("end")
-          sub.kill()
-        }
-      }
-
-      "alternate path" - new WithRoute {
-
-        def route =
-          path("a") {
+    test("simple pathEnd") {
+      routeTest(
+        route = probe =>
+          pathEnd {
             complete {
-              probe.append("a")
+              probe.append("end")
             }
-          } ~
+        },
+        init = locationProvider => {
+          locationProvider.path()
+        }
+      ) { probe =>
+        probe.toList ==> List("end")
+      }
+    }
+
+    test("alternate path") {
+      routeTest(
+        route = probe =>
+          concat(
+            path("a") {
+              complete {
+                probe.append("a")
+              }
+            },
             path("b") {
               complete {
                 probe.append("b")
               }
-            } ~
+            },
             path("c") {
               complete {
                 probe.append("c")
               }
             }
-
-        delayedFuture(5) {
-          requestContext.path("b")
-          requestContext.path("c")
-          requestContext.path("a")
-          probe.toList ==> List("b", "c", "a")
-          sub.kill()
+        ),
+        init = locationProvider => {
+          locationProvider.path("b")
+          locationProvider.path("c")
+          locationProvider.path("a")
         }
+      ) { probe =>
+        probe.toList ==> List("b", "c", "a")
       }
+    }
 
-      "deep alternate path" - new WithRoute {
-
-        def route =
-          pathPrefix("prefix1") {
-            pathPrefix("prefix2") {
-              pathEnd {
-                complete {
-                  probe.append("prefix1/prefix2")
-                }
-              } ~
-                path("suffix1") {
-                  complete {
-                    probe.append("prefix1/prefix2/suffix1")
+    test("deep alternate path") {
+      routeTest(
+        route = probe =>
+          concat(
+            pathPrefix("prefix1") {
+              pathPrefix("prefix2") {
+                concat(
+                  pathEnd {
+                    complete {
+                      probe.append("prefix1/prefix2")
+                    }
+                  },
+                  path("suffix1") {
+                    complete {
+                      probe.append("prefix1/prefix2/suffix1")
+                    }
                   }
-                }
-            }
-          } ~
+                )
+              }
+            },
             pathPrefix("prefix2") {
               pathPrefix("prefix3") {
-                pathEnd {
-                  complete {
-                    probe.append("prefix2/prefix3")
-                  }
-                } ~
+                concat(
+                  pathEnd {
+                    complete {
+                      probe.append("prefix2/prefix3")
+                    }
+                  },
                   path("suffix2") {
                     complete {
                       probe.append("prefix2/prefix3/suffix2")
                     }
-                  } ~
+                  },
                   path("suffix3") {
-                    param('param1) { paramValue =>
+                    param("param1") { paramValue =>
                       complete {
                         probe.append(s"prefix2/prefix3/suffix3?param1=$paramValue")
                       }
                     }
                   }
+                )
               }
             }
-
-        requestContext.path("prefix2", "prefix3", "suffix2")
-        requestContext.path("prefix1", "prefix2")
-        requestContext.path("prefix1", "prefix2", "suffix1")
-        requestContext.path("prefix2", "prefix3")
-        requestContext.path("prefix2", "prefix3", "suffix3")
-        requestContext.params('param1 -> "param-value")
-
-        delayedFuture(5) {
-          probe.toList ==> List(
-            "prefix2/prefix3/suffix2",
-            "prefix1/prefix2",
-            "prefix1/prefix2/suffix1",
-            "prefix2/prefix3",
-            "prefix2/prefix3/suffix3?param1=param-value"
-          )
-          sub.kill()
+        ),
+        init = locationProvider => {
+          locationProvider.path("prefix2", "prefix3", "suffix2")
+          locationProvider.path("prefix1", "prefix2")
+          locationProvider.path("prefix1", "prefix2", "suffix1")
+          locationProvider.path("prefix2", "prefix3")
+          locationProvider.path("prefix2", "prefix3", "suffix3")
+          locationProvider.params("param1" -> "param-value")
         }
+      ) { probe =>
+        probe.toList ==> List(
+          "prefix2/prefix3/suffix2",
+          "prefix1/prefix2",
+          "prefix1/prefix2/suffix1",
+          "prefix2/prefix3",
+          "prefix2/prefix3/suffix3?param1=param-value"
+        )
       }
+    }
 
-      "signal" - new WithRoute {
-        var paramSignal: Signal[String] = null
-
-        def route =
+    test("signal") {
+      var paramSignal: Signal[String]   = null
+      var signals: Future[List[String]] = null
+      routeTestF(
+        route = probe =>
           pathPrefix("prefix1") {
             pathPrefix("prefix2") {
               path(segment).signal { s =>
                 complete {
                   paramSignal = s
-                  probe.append("prefix1/prefix2/ - other suffix")
+                  signals = nSignals(3, paramSignal)
+                  probe.append("prefix1/prefix2")
                 }
               }
             }
-          }
-
-        requestContext.path("prefix1", "prefix2", "other-suffix-1")
-        requestContext.path("prefix1", "prefix2", "other-suffix-2")
-        requestContext.path("prefix1", "prefix2", "other-suffix-3")
-
-        delayedFuture(5) {
-
-          probe.toList ==> List(
-            "prefix1/prefix2/ - other suffix"
-          )
-
-          nSignals(3, paramSignal).map { params =>
+        },
+        init = locationProvider => {
+          locationProvider.path("prefix1", "prefix2", "other-suffix-1")
+          locationProvider.path("prefix1", "prefix2", "other-suffix-2")
+          locationProvider.path("prefix1", "prefix2", "other-suffix-3")
+        }
+      ) { probe =>
+        signals
+          .map { params =>
             params ==> List(
               "other-suffix-1",
               "other-suffix-2",
-              "other-suffix-4"
+              "other-suffix-3"
             )
           }
-        }
-
-//        sub.kill()
+          .andThen { _ =>
+            probe.toList ==> List(
+              "prefix1/prefix2"
+            )
+          }
       }
+    }
 
-      "conjunction" - new WithRoute {
-        def route =
+    test("conjunction") {
+      routeTest(
+        route = probe =>
           pathPrefix("prefix1") {
             pathPrefix("prefix2") {
-              (path(segment) & param('param1)) { (seg, paramValue) =>
+              (path(segment) & param("param1")) { (seg, paramValue) =>
                 complete {
                   probe.append(s"prefix1/prefix2/$seg?param1=$paramValue")
                 }
               }
             }
-          }
+        },
+        init = locationProvider => {
+          locationProvider.path("prefix1", "prefix2", "other-suffix-1")
+          locationProvider.params("param1" -> "param1-value1")
+          locationProvider.params("param1" -> "param1-value2")
+          locationProvider.path("prefix1", "prefix2", "other-suffix-2")
 
-        requestContext.path("prefix1", "prefix2", "other-suffix-1")
-        requestContext.params('param1 -> "param1-value1")
-        requestContext.params('param1 -> "param1-value2")
-        requestContext.path("prefix1", "prefix2", "other-suffix-2")
-
-        delayedFuture(5) {
-
-          probe.toList ==> List(
-            "prefix1/prefix2/other-suffix-1?param1=param1-value1",
-            "prefix1/prefix2/other-suffix-1?param1=param1-value2",
-            "prefix1/prefix2/other-suffix-2?param1=param1-value2"
-          )
-          sub.kill()
         }
+      ) { probe =>
+        probe.toList ==> List(
+          "prefix1/prefix2/other-suffix-1?param1=param1-value1",
+          "prefix1/prefix2/other-suffix-1?param1=param1-value2",
+          "prefix1/prefix2/other-suffix-2?param1=param1-value2"
+        )
       }
-
     }
 
   }
 
-  def nthSignal[T](n: Int, s: Signal[T], waitTime: Long = 1000): Future[T] = {
+  def nthSignal[T](n: Int, s: Signal[T], waitTime: FiniteDuration = 1.second): Future[T] = {
     val p     = Promise[T]()
     var count = n
     s.addObserver(Observer { t =>
@@ -226,7 +247,7 @@ object RoutingTests extends TestSuite {
     p.future
   }
 
-  def nSignals[T](n: Int, s: Signal[T], waitTime: Long = 1000): Future[List[T]] = {
+  def nSignals[T](n: Int, s: Signal[T], wait: FiniteDuration = 1.second): Future[List[T]] = {
     val p     = Promise[List[T]]()
     var count = n
     var list  = List.empty[T]
@@ -240,60 +261,69 @@ object RoutingTests extends TestSuite {
       }
     })
 
-    setTimeout(waitTime) {
+    setTimeout(wait) {
       if (!p.isCompleted) {
+        println("nSignals timeout")
         p.failure(new RuntimeException("nSignals timeout"))
       }
     }
     p.future
   }
 
-  def generateSignals[T](s: List[T], interval: Long = 10): Signal[T] = s match {
-    case head :: rest =>
-      val $var = Var(head)
-      var ss   = rest
-      def doNext(): Unit = ss match {
-        case h :: tail =>
-          ss = tail
-          $var.writer.onNext(h)
-          setTimeout(interval) {
-            doNext()
-          }
-        case _ =>
-      }
-      setTimeout(interval) {
-        doNext()
-      }
-      $var.signal
-    case _ => ???
+  def generateSignals[T](s: List[T], interval: FiniteDuration = 10.millis): Signal[T] = {
+    s match {
+      case head :: rest =>
+        val $var = Var(head)
+        var ss   = rest
+        def doNext(): Unit = ss match {
+          case h :: tail =>
+            ss = tail
+            $var.writer.onNext(h)
+            val _ = setTimeout(interval) {
+              doNext()
+            }
+          case _ =>
+        }
+        val _ = setTimeout(interval) {
+          doNext()
+        }
+        $var.signal
+      case _ =>
+        throw new RuntimeException("generate signals - empty")
+    }
   }
 
 }
 
-class TestRequestContext {
+class TestRouteLocationProvider extends RouteLocationProvider {
 
-  private val pathBus    = Var[List[String]](List.empty)
-  private val paramsBus  = Var[Map[String, List[String]]](Map.empty)
-  private val cookiesBus = Var[Map[String, String]](Map.empty)
+  private var currentPath: List[String]                = List.empty
+  private var currentParams: Map[String, List[String]] = Map.empty
 
-  val signal: Signal[RequestContext] =
-    pathBus.signal.combineWith(paramsBus.signal).combineWith(cookiesBus.signal).map {
-      case ((path, params), cookies) => RequestContext(path, params, cookies)
-    }
+  private val bus = new EventBus[RouteLocation]
+
+  val stream: EventStream[RouteLocation] = bus.events
 
   def path(parts: String*): Unit = {
-    pathBus.writer.onNext(parts.toList)
+    currentPath = parts.toList
+    emit()
   }
 
-  def params(params: (Symbol, String)*): Unit = {
-    paramsBus.writer.onNext(
-      params
-        .groupBy(_._1)
-        .toList
-        .map {
-          case (name, values) =>
-            name.name -> values.map(_._2).toList
-        }(breakOut)
+  def params(params: (String, String)*): Unit = {
+    currentParams = params
+      .groupBy(_._1)
+      .view
+      .map {
+        case (name, values) =>
+          name -> values.map(_._2).toList
+      }
+      .toMap
+    emit()
+  }
+
+  def emit(): Unit = {
+    bus.writer.onNext(
+      RouteLocation(currentPath, currentParams)
     )
   }
 

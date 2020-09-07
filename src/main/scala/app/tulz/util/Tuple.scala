@@ -1,4 +1,4 @@
-package app.tulz.routing.util
+package app.tulz.util
 
 /**
   * Phantom type providing implicit evidence that a given type is a Tuple or Unit.
