@@ -47,8 +47,6 @@ publishMavenStyle := true
 
 publishArtifact in Test := false
 
-publishTo := sonatypePublishTo.value
-
 releaseCrossBuild := true
 
 pomIncludeRepository := { _ => false }
